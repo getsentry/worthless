@@ -430,6 +430,7 @@ mod tests {
         Context::wrap(|ctx| {
             let val = Value::from_i32(&ctx, 42);
             assert_eq!(val.kind(), ValueKind::Number);
+            assert_eq!(val.as_primitive(), Some(crate::Primitive::I32(42)));
             Ok(())
         })
         .unwrap()

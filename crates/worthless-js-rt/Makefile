@@ -13,5 +13,4 @@ open-doc:
 
 .PHONY: test
 test:
-	cargo build --tests --target wasm32-wasi
-	./scripts/run-tests.sh
+	cargo test --target wasm32-wasi
