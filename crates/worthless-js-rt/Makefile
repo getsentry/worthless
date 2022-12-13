@@ -10,3 +10,8 @@ doc:
 .PHONY: open-doc
 open-doc:
 	cargo doc --target wasm32-wasi --open
+
+.PHONY: test
+test:
+	cargo build --tests --target wasm32-wasi
+	./scripts/run-tests.sh
