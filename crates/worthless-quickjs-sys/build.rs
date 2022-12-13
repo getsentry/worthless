@@ -4,6 +4,11 @@ use std::{env, fs};
 fn main() {
     let here = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let wasi_sdk_path = here.join("wasi-sdk");
+
+    if fs::metadata(wasi_sdk_path.join("share/wasi-sysroot")).is_err() {
+        panic!("cannot build: wasi-sdk not found, run make download-wasi-sdk in root folder")
+    }
+
     env::set_var("CC", wasi_sdk_path.join("bin/clang"));
     env::set_var("AR", wasi_sdk_path.join("bin/ar"));
     env::set_var(
