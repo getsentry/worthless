@@ -1,0 +1,2 @@
+trigger-rebuild:
+	touch .rebuild

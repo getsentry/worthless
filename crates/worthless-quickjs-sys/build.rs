@@ -26,6 +26,7 @@ fn main() {
             "quickjs/libregexp.c",
             "quickjs/libunicode.c",
             "quickjs/quickjs.c",
+            "quickjs-api/api.c",
         ])
         .define("_GNU_SOURCE", None)
         .define(
@@ -58,7 +59,7 @@ fn main() {
         .compile("quickjs");
 
     let bindings = bindgen::Builder::default()
-        .header("quickjs/quickjs.h")
+        .header("quickjs-api/api.h")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks))
         .clang_args(&[
             "-fvisibility=default",
@@ -73,4 +74,6 @@ fn main() {
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings.write_to_file(out_dir.join("bindings.rs")).unwrap();
+
+    println!("cargo:rerun-if-changed=.rebuild");
 }
