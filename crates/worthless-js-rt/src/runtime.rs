@@ -5,6 +5,10 @@ use worthless_quickjs_sys::{JSRuntime, JS_FreeRuntime, JS_NewRuntime};
 
 use crate::error::Error;
 
+/// Wraps a QuickJS runtime.
+///
+/// This is a non thread-safe handle like object that can be cloned
+/// cheaply to increment the refcount.
 #[derive(Clone)]
 pub struct Runtime {
     handle: Rc<RuntimeHandle>,

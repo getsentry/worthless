@@ -14,6 +14,10 @@ struct ContextHandle {
     ptr: *mut JSContext,
 }
 
+/// Wraps a QuickJS context.
+///
+/// This is a non thread-safe handle like object that can be cloned
+/// cheaply to increment the refcount.
 #[derive(Clone)]
 pub struct Context {
     handle: Rc<ContextHandle>,

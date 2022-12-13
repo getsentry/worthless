@@ -3,10 +3,10 @@ use std::ffi::{c_void, CString};
 use std::fmt;
 
 use worthless_quickjs_sys::{
-    JSRefCountHeader, JSValue, JS_GetException, JS_GetPropertyStr, JS_IsArray, JS_IsError,
-    JS_IsFunction, JS_ToCStringLen2, JS_ToInt64Ext, __JS_FreeValue, JS_TAG_BIG_INT, JS_TAG_BOOL,
-    JS_TAG_EXCEPTION, JS_TAG_FIRST, JS_TAG_FLOAT64, JS_TAG_INT, JS_TAG_NULL, JS_TAG_STRING,
-    JS_TAG_SYMBOL, JS_TAG_UNDEFINED,
+    JSRefCountHeader, JSValue, JS_GetException, JS_GetPropertyStr, JS_GetPropertyUint32,
+    JS_IsArray, JS_IsError, JS_IsFunction, JS_ToCStringLen2, JS_ToInt64Ext, __JS_FreeValue,
+    JS_TAG_BIG_INT, JS_TAG_BOOL, JS_TAG_EXCEPTION, JS_TAG_FIRST, JS_TAG_FLOAT64, JS_TAG_INT,
+    JS_TAG_NULL, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED,
 };
 
 use crate::context::Context;
@@ -110,6 +110,20 @@ impl Value {
         Value {
             raw,
             ctx: ctx.clone(),
+        }
+    }
+
+    /// Returns the kind of value.
+    pub fn kind(&self) -> ValueKind {
+        match self.tag() {
+            JS_TAG_UNDEFINED => ValueKind::Undefined,
+            JS_TAG_NULL => ValueKind::Null,
+            JS_TAG_INT | JS_TAG_FLOAT64 => ValueKind::Number,
+            JS_TAG_BOOL => ValueKind::Boolean,
+            JS_TAG_STRING => ValueKind::String,
+            JS_TAG_SYMBOL => ValueKind::Symbol,
+            JS_TAG_EXCEPTION => ValueKind::Exception,
+            _ => ValueKind::Object,
         }
     }
 
@@ -234,7 +248,7 @@ impl Value {
     }
 
     /// Looks up a property on the object.
-    pub fn get_property(&self, key: &str) -> Result<Self, Error> {
+    pub fn get_property(&self, key: &str) -> Result<Value, Error> {
         let cstring_key = CString::new(key)?;
         unsafe {
             let raw = JS_GetPropertyStr(self.ctx.ptr(), self.raw, cstring_key.as_ptr());
@@ -242,17 +256,12 @@ impl Value {
         }
     }
 
-    /// Returns the kind of value.
-    pub fn kind(&self) -> ValueKind {
-        match self.tag() {
-            JS_TAG_UNDEFINED => ValueKind::Undefined,
-            JS_TAG_NULL => ValueKind::Null,
-            JS_TAG_INT | JS_TAG_FLOAT64 => ValueKind::Number,
-            JS_TAG_BOOL => ValueKind::Boolean,
-            JS_TAG_STRING => ValueKind::String,
-            JS_TAG_SYMBOL => ValueKind::Symbol,
-            JS_TAG_EXCEPTION => ValueKind::Exception,
-            _ => ValueKind::Object,
+    /// Looks up a property by index (eg: array).
+    pub fn get_by_index(&self, idx: usize) -> Result<Value, Error> {
+        let idx = u32::try_from(idx).map_err(Error::IntOverflow)?;
+        unsafe {
+            let raw = JS_GetPropertyUint32(self.ctx.ptr(), self.raw, idx);
+            Value::from_raw(&self.ctx, raw)
         }
     }
 
