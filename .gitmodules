@@ -1,0 +1,3 @@
+[submodule "crates/worthless-quickjs-sys/quickjs"]
+	path = crates/worthless-quickjs-sys/quickjs
+	url = https://github.com/getsentry/quickjs
