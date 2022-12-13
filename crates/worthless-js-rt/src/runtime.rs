@@ -29,7 +29,7 @@ impl Runtime {
     pub fn new() -> Result<Runtime, Error> {
         let ptr = unsafe { JS_NewRuntime() };
         if ptr.is_null() {
-            return Err(Error::QuickJsRuntimeInit);
+            return Err(Error::RuntimeInit);
         }
 
         Ok(Runtime {

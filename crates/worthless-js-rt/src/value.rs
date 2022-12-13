@@ -2,15 +2,46 @@ use std::borrow::Cow;
 use std::ffi::{c_void, CString};
 use std::fmt;
 
+use smallvec::SmallVec;
 use worthless_quickjs_sys::{
-    JSRefCountHeader, JSValue, JS_GetException, JS_GetPropertyStr, JS_GetPropertyUint32,
-    JS_IsArray, JS_IsError, JS_IsFunction, JS_ToCStringLen2, JS_ToInt64Ext, __JS_FreeValue,
-    JS_TAG_BIG_INT, JS_TAG_BOOL, JS_TAG_EXCEPTION, JS_TAG_FIRST, JS_TAG_FLOAT64, JS_TAG_INT,
-    JS_TAG_NULL, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED,
+    JSRefCountHeader, JSValue, JS_Call, JS_DefinePropertyValueStr, JS_DefinePropertyValueUint32,
+    JS_GetException, JS_GetPropertyStr, JS_GetPropertyUint32, JS_IsArray, JS_IsError,
+    JS_IsFunction, JS_ToCStringLen2, JS_ToFloat64, JS_ToInt64Ext, WL_JS_NewBool, WL_JS_NewFloat64,
+    WL_JS_NewInt32, __JS_FreeValue, JS_PROP_C_W_E, JS_TAG_BIG_INT, JS_TAG_BOOL, JS_TAG_EXCEPTION,
+    JS_TAG_FIRST, JS_TAG_FLOAT64, JS_TAG_INT, JS_TAG_NULL, JS_TAG_STRING, JS_TAG_SYMBOL,
+    JS_TAG_UNDEFINED,
 };
 
 use crate::context::Context;
-use crate::error::{Error, JsException};
+use crate::error::Error;
+
+/// Represents a JavaScript exception.
+#[derive(Debug)]
+pub struct JsException {
+    pub(crate) msg: String,
+    pub(crate) stack: Option<String>,
+}
+
+impl JsException {
+    pub(crate) unsafe fn from_raw(ctx: &Context) -> JsException {
+        let exc_val = unsafe { Value::from_raw_unchecked(ctx, JS_GetException(ctx.ptr())) };
+        let msg = exc_val.as_str_lossy().to_string();
+        let mut stack = None;
+        let is_error = unsafe { JS_IsError(ctx.ptr(), exc_val.raw) } != 0;
+        if is_error {
+            if let Ok(stack_value) = exc_val.get_property("stack") {
+                if stack_value.kind() != ValueKind::Undefined {
+                    stack.replace(stack_value.as_str_lossy().to_string());
+                }
+            }
+        }
+
+        JsException {
+            msg: msg.to_string(),
+            stack,
+        }
+    }
+}
 
 /// An enum that indicates of what type a value is
 #[derive(Debug, PartialEq, Eq)]
@@ -67,9 +98,10 @@ impl fmt::Debug for Value {
         } else {
             f.debug_struct(&format!("{:?}", kind))
         };
-        s.field("as_primitive", &self.as_primitive())
-            .field("to_string", &self.as_str_lossy())
-            .finish()
+        if let Some(x) = self.as_primitive() {
+            s.field("as_primitive", &x);
+        }
+        s.field("to_string", &self.as_str_lossy()).finish()
     }
 }
 
@@ -81,28 +113,13 @@ impl Value {
     pub(crate) unsafe fn from_raw(ctx: &Context, raw: JSValue) -> Result<Value, Error> {
         let val = Value::from_raw_unchecked(ctx, raw);
 
-        if val.kind() != ValueKind::Exception {
-            return Ok(val);
+        if val.kind() == ValueKind::Exception {
+            // this value is actually an exception.  In that case try to fetch the exception
+            // information form the context and crate an error.
+            Err(Error::JsException(JsException::from_raw(ctx)))
+        } else {
+            Ok(val)
         }
-
-        // this value is actually an exception.  In that case try to fetch the exception
-        // information form the context and crate an error.
-        let exc_val = unsafe { Value::from_raw_unchecked(ctx, JS_GetException(ctx.ptr())) };
-        let msg = exc_val.as_str()?;
-        let mut stack = None;
-        let is_error = unsafe { JS_IsError(ctx.ptr(), exc_val.raw) } != 0;
-        if is_error {
-            if let Ok(stack_value) = exc_val.get_property("stack") {
-                if stack_value.kind() != ValueKind::Undefined {
-                    stack.replace(stack_value.as_str().map(ToString::to_string)?);
-                }
-            }
-        }
-
-        Err(Error::JsException(JsException {
-            msg: msg.to_string(),
-            stack,
-        }))
     }
 
     /// Constructs a value from a raw JS value without exception handling.
@@ -111,6 +128,30 @@ impl Value {
             raw,
             ctx: ctx.clone(),
         }
+    }
+
+    /// Creates a new value from a `bool`.
+    pub fn from_bool(ctx: &Context, value: bool) -> Value {
+        unsafe { Value::from_raw_unchecked(ctx, WL_JS_NewBool(ctx.ptr(), value as i32)) }
+    }
+
+    /// Creates a new value from an `i32`.
+    pub fn from_i32(ctx: &Context, value: i32) -> Value {
+        unsafe { Value::from_raw_unchecked(ctx, WL_JS_NewInt32(ctx.ptr(), value)) }
+    }
+
+    /// Creates a new value from an `i64`.
+    pub fn from_i64(ctx: &Context, value: i64) -> Value {
+        if value as i32 as i64 == value {
+            Value::from_i32(ctx, value as i32)
+        } else {
+            Value::from_f64(ctx, value as f64)
+        }
+    }
+
+    /// Creates a new value from an `f64`.
+    pub fn from_f64(ctx: &Context, value: f64) -> Value {
+        unsafe { Value::from_raw_unchecked(ctx, WL_JS_NewFloat64(ctx.ptr(), value)) }
     }
 
     /// Returns the kind of value.
@@ -175,16 +216,11 @@ impl Value {
     pub fn as_f64(&self) -> Option<f64> {
         match self.tag() {
             JS_TAG_FLOAT64 => {
-                #[repr(C)]
-                union Helper {
-                    v: JSValue,
-                    d: f64,
+                let mut pres: f64 = 0.0;
+                unsafe {
+                    JS_ToFloat64(self.ctx.ptr(), &mut pres, self.raw);
                 }
-                let mut u: Helper = unsafe { std::mem::zeroed() };
-                u.v = self
-                    .raw
-                    .wrapping_add(((0x7ff80000i32.wrapping_sub(JS_TAG_FIRST + 1)) as u64) << 32);
-                Some(unsafe { u.d })
+                Some(pres)
             }
             JS_TAG_BIG_INT => {
                 let mut pres: i64 = 0;
@@ -256,12 +292,73 @@ impl Value {
         }
     }
 
+    /// Sets a property to the object.
+    pub fn set_property(&self, key: &str, value: Value) -> Result<(), Error> {
+        let key = CString::new(key)?;
+        let rv = unsafe {
+            JS_DefinePropertyValueStr(
+                self.ctx.ptr(),
+                self.raw,
+                key.as_ptr(),
+                value.raw,
+                JS_PROP_C_W_E as i32,
+            )
+        };
+
+        if rv < 0 {
+            Err(self.ctx.last_error())
+        } else {
+            Ok(())
+        }
+    }
+
     /// Looks up a property by index (eg: array).
     pub fn get_by_index(&self, idx: usize) -> Result<Value, Error> {
         let idx = u32::try_from(idx).map_err(Error::IntOverflow)?;
         unsafe {
             let raw = JS_GetPropertyUint32(self.ctx.ptr(), self.raw, idx);
             Value::from_raw(&self.ctx, raw)
+        }
+    }
+
+    /// Appends a value to the end of an array.
+    pub fn append(&self, value: Value) -> Result<(), Error> {
+        let rv = unsafe {
+            JS_DefinePropertyValueUint32(
+                self.ctx.ptr(),
+                self.raw,
+                self.get_property("length")?
+                    .as_i64()
+                    .and_then(|x| u32::try_from(x).ok())
+                    .ok_or_else(|| Error::InvalidLength)?,
+                value.raw,
+                JS_PROP_C_W_E as i32,
+            )
+        };
+
+        if rv < 0 {
+            Err(self.ctx.last_error())
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Places a value at a certain index.
+    pub fn set_by_index(&self, idx: usize, value: Value) -> Result<(), Error> {
+        let rv = unsafe {
+            JS_DefinePropertyValueUint32(
+                self.ctx.ptr(),
+                self.raw,
+                u32::try_from(idx).map_err(|_| Error::InvalidLength)?,
+                value.raw,
+                JS_PROP_C_W_E as i32,
+            )
+        };
+
+        if rv < 0 {
+            Err(self.ctx.last_error())
+        } else {
+            Ok(())
         }
     }
 
@@ -275,8 +372,24 @@ impl Value {
         unsafe { JS_IsArray(self.ctx.ptr(), self.raw) == 1 }
     }
 
+    /// Calls the object.
+    pub fn call(&self, receiver: Value, args: &[Self]) -> Result<Value, Error> {
+        let args: SmallVec<[JSValue; 10]> = args.iter().map(|v| v.raw).collect();
+        let rv = unsafe {
+            JS_Call(
+                self.ctx.ptr(),
+                self.raw,
+                receiver.raw,
+                args.len() as i32,
+                args.as_slice().as_ptr() as *mut JSValue,
+            )
+        };
+        unsafe { Value::from_raw(&self.ctx, rv) }
+    }
+
     /// Returns the internal tag of the value.
     fn tag(&self) -> i32 {
+        // TODO: not happy that this is inlined
         let tag = (self.raw >> 32) as i32;
         if (tag - JS_TAG_FIRST) as u32 >= (JS_TAG_FLOAT64 - JS_TAG_FIRST) as u32 {
             JS_TAG_FLOAT64
@@ -293,6 +406,7 @@ impl Value {
 
 impl Drop for Value {
     fn drop(&mut self) {
+        // TODO: not happy that this is inlined
         // see JS_VALUE_HAS_REF_COUNT
         if (self.raw >> 32) as u32 >= JS_TAG_FIRST as u32 {
             unsafe {
@@ -303,5 +417,21 @@ impl Drop for Value {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Value;
+    use crate::{Context, ValueKind};
+
+    #[test]
+    fn test_i32() {
+        Context::wrap(|ctx| {
+            let val = Value::from_i32(&ctx, 42);
+            assert_eq!(val.kind(), ValueKind::Number);
+            Ok(())
+        })
+        .unwrap()
     }
 }

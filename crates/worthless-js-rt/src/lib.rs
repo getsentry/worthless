@@ -6,6 +6,6 @@ mod runtime;
 mod value;
 
 pub use self::context::Context;
-pub use self::error::{Error, JsException};
+pub use self::error::Error;
 pub use self::runtime::Runtime;
-pub use self::value::{Primitive, Value, ValueKind};
+pub use self::value::{JsException, Primitive, Value, ValueKind};
