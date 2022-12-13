@@ -75,5 +75,6 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings.write_to_file(out_dir.join("bindings.rs")).unwrap();
 
+    // pick up `make trigger-rebuild`
     println!("cargo:rerun-if-changed=.rebuild");
 }
