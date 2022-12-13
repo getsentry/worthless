@@ -13,4 +13,4 @@ open-doc:
 
 .PHONY: test
 test:
-	cargo test --target wasm32-wasi
+	cargo test --target wasm32-wasi -- --nocapture
