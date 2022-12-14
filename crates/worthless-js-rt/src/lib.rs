@@ -10,4 +10,4 @@ pub use self::context::Context;
 pub use self::error::Error;
 pub use self::primitive::Primitive;
 pub use self::runtime::Runtime;
-pub use self::value::{JsException, Value, ValueKind};
+pub use self::value::{IntoValue, JsException, Value, ValueKind};

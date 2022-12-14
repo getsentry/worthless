@@ -5,11 +5,12 @@ use std::fmt;
 use smallvec::SmallVec;
 use worthless_quickjs_sys::{
     JSValue, JS_Call, JS_DefinePropertyValueStr, JS_DefinePropertyValueUint32, JS_GetException,
-    JS_GetPropertyStr, JS_GetPropertyUint32, JS_IsArray, JS_IsError, JS_IsFunction,
-    JS_NewStringLen, JS_ToCStringLen2, JS_ToFloat64, JS_ToInt64Ext, WL_JS_FreeValue, WL_JS_NewBool,
-    WL_JS_NewFloat64, WL_JS_NewInt32, JS_PROP_C_W_E, JS_TAG_BIG_INT, JS_TAG_BOOL, JS_TAG_EXCEPTION,
-    JS_TAG_FIRST, JS_TAG_FLOAT64, JS_TAG_INT, JS_TAG_NULL, JS_TAG_STRING, JS_TAG_SYMBOL,
-    JS_TAG_UNDEFINED, WL_JS_NULL, WL_JS_TRUE, WL_JS_UNDEFINED,
+    JS_GetPropertyStr, JS_GetPropertyUint32, JS_IsArray, JS_IsError, JS_IsFunction, JS_NewArray,
+    JS_NewStringLen, JS_ToCStringLen2, JS_ToFloat64, JS_ToInt64Ext, WL_JS_DupValue,
+    WL_JS_FreeValue, WL_JS_NewBool, WL_JS_NewFloat64, WL_JS_NewInt32, JS_PROP_C_W_E,
+    JS_TAG_BIG_INT, JS_TAG_BOOL, JS_TAG_EXCEPTION, JS_TAG_FIRST, JS_TAG_FLOAT64, JS_TAG_INT,
+    JS_TAG_NULL, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED, WL_JS_NULL, WL_JS_TRUE,
+    WL_JS_UNDEFINED,
 };
 
 use crate::context::Context;
@@ -174,6 +175,20 @@ impl Value {
         }
     }
 
+    /// Creates an array from an iterator.
+    pub fn from_iter<I: Iterator<Item = V>, V: IntoValue>(ctx: &Context, iter: I) -> Value {
+        let rv = Value::new_array(ctx);
+        for item in iter {
+            rv.append(item.into_value(ctx)).unwrap();
+        }
+        rv
+    }
+
+    /// Crates an empty array
+    pub fn new_array(ctx: &Context) -> Value {
+        unsafe { Value::from_raw_unchecked(ctx, JS_NewArray(ctx.ptr())) }
+    }
+
     /// Returns the kind of value.
     pub fn kind(&self) -> ValueKind {
         match self.tag() {
@@ -329,6 +344,7 @@ impl Value {
     pub fn set_property(&self, key: &str, value: Value) -> Result<(), Error> {
         let key = CString::new(key)?;
         let rv = unsafe {
+            WL_JS_DupValue(self.ctx.ptr(), value.raw);
             JS_DefinePropertyValueStr(
                 self.ctx.ptr(),
                 self.raw,
@@ -357,6 +373,7 @@ impl Value {
     /// Appends a value to the end of an array.
     pub fn append(&self, value: Value) -> Result<(), Error> {
         let rv = unsafe {
+            WL_JS_DupValue(self.ctx.ptr(), value.raw);
             JS_DefinePropertyValueUint32(
                 self.ctx.ptr(),
                 self.raw,
@@ -379,6 +396,7 @@ impl Value {
     /// Places a value at a certain index.
     pub fn set_by_index(&self, idx: usize, value: Value) -> Result<(), Error> {
         let rv = unsafe {
+            WL_JS_DupValue(self.ctx.ptr(), value.raw);
             JS_DefinePropertyValueUint32(
                 self.ctx.ptr(),
                 self.raw,
@@ -451,11 +469,37 @@ impl Value {
     }
 }
 
+impl Clone for Value {
+    fn clone(&self) -> Self {
+        unsafe { WL_JS_DupValue(self.ctx.ptr(), self.raw) };
+        Self {
+            raw: self.raw,
+            ctx: self.ctx.clone(),
+        }
+    }
+}
+
 impl Drop for Value {
     fn drop(&mut self) {
         unsafe {
             WL_JS_FreeValue(self.ctx.ptr(), self.raw);
         }
+    }
+}
+
+pub trait IntoValue {
+    fn into_value(self, ctx: &Context) -> Value;
+}
+
+impl IntoValue for Value {
+    fn into_value(self, _ctx: &Context) -> Value {
+        self
+    }
+}
+
+impl<'a> IntoValue for Primitive<'a> {
+    fn into_value(self, ctx: &Context) -> Value {
+        Value::from_primitive(ctx, self)
     }
 }
 
@@ -554,6 +598,25 @@ mod tests {
             assert_eq!(val.as_primitive(), Some(Primitive::Str("Hello World!")));
             assert_eq!(val.as_str_lossy(), "Hello World!");
             assert_eq!(val.len(), Some(12));
+
+            Ok(())
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn test_array() {
+        Context::wrap(|ctx| {
+            let arr = [
+                Value::from_primitive(&ctx, "Hello"),
+                Value::from_primitive(&ctx, "World"),
+            ];
+            let val = Value::from_iter(&ctx, (&arr[..]).iter().cloned());
+            assert_eq!(val.kind(), ValueKind::Object);
+            assert!(val.is_array());
+            assert_eq!(val.as_primitive(), None);
+            assert_eq!(val.as_str_lossy(), "Hello,World");
+            assert_eq!(val.len(), Some(2));
 
             Ok(())
         })
