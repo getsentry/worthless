@@ -614,6 +614,12 @@ mod tests {
             let val = Value::from_iter(&ctx, (&arr[..]).iter().cloned());
             assert_eq!(val.kind(), ValueKind::Object);
             assert!(val.is_array());
+            assert_eq!(val.get_by_index(0).unwrap().as_str_lossy(), "Hello");
+            assert_eq!(val.get_by_index(1).unwrap().as_str_lossy(), "World");
+            assert_eq!(val.get_by_index(2).unwrap().kind(), ValueKind::Undefined);
+            assert_eq!(val.get_property("0").unwrap().as_str_lossy(), "Hello");
+            assert_eq!(val.get_property("1").unwrap().as_str_lossy(), "World");
+            assert_eq!(val.get_property("2").unwrap().kind(), ValueKind::Undefined);
             assert_eq!(val.as_primitive(), None);
             assert_eq!(val.as_str_lossy(), "Hello,World");
             assert_eq!(val.len(), Some(2));
