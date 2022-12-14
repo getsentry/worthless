@@ -53,7 +53,7 @@ impl Context {
     }
 
     /// Invokes a function with a new runtime and context.
-    pub fn wrap<R, F>(f: F) -> Result<R, Error>
+    pub fn run<R, F>(f: F) -> Result<R, Error>
     where
         F: FnOnce(&Context) -> Result<R, Error>,
     {

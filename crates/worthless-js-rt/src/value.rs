@@ -488,7 +488,7 @@ mod tests {
 
     #[test]
     fn test_null() {
-        Context::wrap(|ctx| {
+        Context::run(|ctx| {
             let val = Value::from_primitive(ctx, Primitive::Null);
             assert_eq!(val.kind(), ValueKind::Null);
             assert_eq!(val.as_primitive(), Some(Primitive::Null));
@@ -502,7 +502,7 @@ mod tests {
 
     #[test]
     fn test_undefined() {
-        Context::wrap(|ctx| {
+        Context::run(|ctx| {
             let val = Value::from_primitive(ctx, Primitive::Undefined);
             assert_eq!(val.kind(), ValueKind::Undefined);
             assert_eq!(val.as_primitive(), Some(Primitive::Undefined));
@@ -516,7 +516,7 @@ mod tests {
 
     #[test]
     fn test_bool() {
-        Context::wrap(|ctx| {
+        Context::run(|ctx| {
             let val = Value::from_primitive(ctx, true);
             assert_eq!(val.kind(), ValueKind::Boolean);
             assert_eq!(val.as_primitive(), Some(Primitive::Bool(true)));
@@ -536,7 +536,7 @@ mod tests {
 
     #[test]
     fn test_i32() {
-        Context::wrap(|ctx| {
+        Context::run(|ctx| {
             let val = Value::from_primitive(ctx, 42i32);
             assert_eq!(val.kind(), ValueKind::Number);
             assert_eq!(val.as_primitive(), Some(Primitive::I32(42)));
@@ -549,7 +549,7 @@ mod tests {
 
     #[test]
     fn test_i64() {
-        Context::wrap(|ctx| {
+        Context::run(|ctx| {
             let val = Value::from_primitive(ctx, 42i64);
             assert_eq!(val.kind(), ValueKind::Number);
             assert_eq!(val.as_primitive(), Some(Primitive::I32(42)));
@@ -569,7 +569,7 @@ mod tests {
 
     #[test]
     fn test_str() {
-        Context::wrap(|ctx| {
+        Context::run(|ctx| {
             let val = Value::from_primitive(ctx, "Hello World!");
             assert_eq!(val.kind(), ValueKind::String);
             assert_eq!(val.as_primitive(), Some(Primitive::Str("Hello World!")));
@@ -583,7 +583,7 @@ mod tests {
 
     #[test]
     fn test_array() {
-        Context::wrap(|ctx| {
+        Context::run(|ctx| {
             let arr = [
                 Value::from_primitive(ctx, "Hello"),
                 Value::from_primitive(ctx, "World"),
@@ -608,7 +608,7 @@ mod tests {
 
     #[test]
     fn test_object() {
-        Context::wrap(|ctx| {
+        Context::run(|ctx| {
             let val = Value::new_object(ctx);
             val.set_property("a", Value::from_primitive(ctx, 42))?;
             val.set_property("b", Value::from_primitive(ctx, 23))?;
