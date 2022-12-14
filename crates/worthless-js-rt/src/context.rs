@@ -7,9 +7,9 @@ use worthless_quickjs_sys::{
 };
 
 use crate::error::Error;
+use crate::js_exception::JsException;
 use crate::runtime::Runtime;
 use crate::value::Value;
-use crate::JsException;
 
 struct ContextHandle {
     ptr: *mut JSContext,
@@ -49,11 +49,11 @@ impl Context {
     /// Invokes a function with a new runtime and context.
     pub fn wrap<R, F>(f: F) -> Result<R, Error>
     where
-        F: FnOnce(Context) -> Result<R, Error>,
+        F: FnOnce(&Context) -> Result<R, Error>,
     {
         let rt = Runtime::new()?;
         let ctx = Context::new(&rt)?;
-        f(ctx).map_err(Into::into)
+        f(&ctx).map_err(Into::into)
     }
 
     /// Returns a reference to the runtime.

@@ -4,46 +4,18 @@ use std::fmt;
 
 use smallvec::SmallVec;
 use worthless_quickjs_sys::{
-    JSValue, JS_Call, JS_DefinePropertyValueStr, JS_DefinePropertyValueUint32, JS_GetException,
-    JS_GetPropertyStr, JS_GetPropertyUint32, JS_IsArray, JS_IsError, JS_IsFunction, JS_NewArray,
-    JS_NewStringLen, JS_ToCStringLen2, JS_ToFloat64, JS_ToInt64Ext, WL_JS_DupValue,
-    WL_JS_FreeValue, WL_JS_NewBool, WL_JS_NewFloat64, WL_JS_NewInt32, JS_PROP_C_W_E,
-    JS_TAG_BIG_INT, JS_TAG_BOOL, JS_TAG_EXCEPTION, JS_TAG_FIRST, JS_TAG_FLOAT64, JS_TAG_INT,
-    JS_TAG_NULL, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED, WL_JS_NULL, WL_JS_TRUE,
-    WL_JS_UNDEFINED,
+    JSValue, JS_Call, JS_DefinePropertyValueStr, JS_DefinePropertyValueUint32, JS_GetPropertyStr,
+    JS_GetPropertyUint32, JS_IsArray, JS_IsFunction, JS_NewArray, JS_NewObject, JS_NewStringLen,
+    JS_ToCStringLen2, JS_ToFloat64, JS_ToInt64Ext, WL_JS_DupValue, WL_JS_FreeValue, WL_JS_NewBool,
+    WL_JS_NewFloat64, WL_JS_NewInt32, JS_PROP_C_W_E, JS_TAG_BIG_INT, JS_TAG_BOOL, JS_TAG_EXCEPTION,
+    JS_TAG_FIRST, JS_TAG_FLOAT64, JS_TAG_INT, JS_TAG_NULL, JS_TAG_STRING, JS_TAG_SYMBOL,
+    JS_TAG_UNDEFINED, WL_JS_NULL, WL_JS_TRUE, WL_JS_UNDEFINED,
 };
 
 use crate::context::Context;
 use crate::error::Error;
+use crate::js_exception::JsException;
 use crate::primitive::Primitive;
-
-/// Represents a JavaScript exception.
-#[derive(Debug)]
-pub struct JsException {
-    pub(crate) msg: String,
-    pub(crate) stack: Option<String>,
-}
-
-impl JsException {
-    pub(crate) unsafe fn from_raw(ctx: &Context) -> JsException {
-        let exc_val = unsafe { Value::from_raw_unchecked(ctx, JS_GetException(ctx.ptr())) };
-        let msg = exc_val.as_str_lossy().to_string();
-        let mut stack = None;
-        let is_error = unsafe { JS_IsError(ctx.ptr(), exc_val.raw) } != 0;
-        if is_error {
-            if let Ok(stack_value) = exc_val.get_property("stack") {
-                if stack_value.kind() != ValueKind::Undefined {
-                    stack.replace(stack_value.as_str_lossy().to_string());
-                }
-            }
-        }
-
-        JsException {
-            msg: msg.to_string(),
-            stack,
-        }
-    }
-}
 
 /// An enum that indicates of what type a value is
 #[derive(Debug, PartialEq, Eq)]
@@ -62,7 +34,7 @@ pub enum ValueKind {
 pub struct Value {
     // note on JSValue here.  We're assuming that JSValue is 64bit because
     // internally it uses JS_NAN_BOXING when compiling to wasi
-    raw: JSValue,
+    pub(crate) raw: JSValue,
     ctx: Context,
 }
 
@@ -76,7 +48,7 @@ impl fmt::Debug for Value {
                 let mut s = f.debug_struct("Function");
                 if let Ok(name) = self.get_property("name") {
                     if name.kind() != ValueKind::Undefined {
-                        s.field("name", &name.as_str_lossy());
+                        s.field("name", &name.to_string_lossy());
                     }
                 }
                 s
@@ -89,7 +61,7 @@ impl fmt::Debug for Value {
         if let Some(x) = self.as_primitive() {
             s.field("as_primitive", &x);
         }
-        s.field("to_string", &self.as_str_lossy()).finish()
+        s.field("to_string", &self.to_string_lossy()).finish()
     }
 }
 
@@ -111,7 +83,7 @@ impl Value {
     }
 
     /// Constructs a value from a raw JS value without exception handling.
-    unsafe fn from_raw_unchecked(ctx: &Context, raw: JSValue) -> Value {
+    pub(crate) unsafe fn from_raw_unchecked(ctx: &Context, raw: JSValue) -> Value {
         Value {
             raw,
             ctx: ctx.clone(),
@@ -189,6 +161,11 @@ impl Value {
         unsafe { Value::from_raw_unchecked(ctx, JS_NewArray(ctx.ptr())) }
     }
 
+    /// Crates an empty object
+    pub fn new_object(ctx: &Context) -> Value {
+        unsafe { Value::from_raw_unchecked(ctx, JS_NewObject(ctx.ptr())) }
+    }
+
     /// Returns the kind of value.
     pub fn kind(&self) -> ValueKind {
         match self.tag() {
@@ -211,7 +188,7 @@ impl Value {
             ValueKind::Number if self.tag() == JS_TAG_INT => Primitive::I32(self.as_i32().unwrap()),
             ValueKind::Number => Primitive::F64(self.as_f64().unwrap_or(f64::NAN)),
             ValueKind::Boolean => Primitive::Bool(self.is_true()),
-            ValueKind::String => match self.as_str_lossy() {
+            ValueKind::String => match self.to_string_lossy() {
                 Cow::Borrowed(val) => Primitive::Str(val),
                 Cow::Owned(invalid_str) => Primitive::InvalidStr(invalid_str),
             },
@@ -241,7 +218,7 @@ impl Value {
     }
 
     /// Returns the value as string with lossy unicode recovery.
-    pub fn as_str_lossy(&self) -> Cow<'_, str> {
+    pub fn to_string_lossy(&self) -> Cow<'_, str> {
         unsafe {
             let mut len: usize = 0;
             let ptr = JS_ToCStringLen2(self.ctx.ptr(), &mut len, self.raw, 0);
@@ -512,11 +489,11 @@ mod tests {
     #[test]
     fn test_null() {
         Context::wrap(|ctx| {
-            let val = Value::from_primitive(&ctx, Primitive::Null);
+            let val = Value::from_primitive(ctx, Primitive::Null);
             assert_eq!(val.kind(), ValueKind::Null);
             assert_eq!(val.as_primitive(), Some(Primitive::Null));
             assert!(!val.is_true());
-            assert_eq!(val.as_str_lossy(), "null");
+            assert_eq!(val.to_string_lossy(), "null");
             assert_eq!(val.len(), None);
             Ok(())
         })
@@ -526,11 +503,11 @@ mod tests {
     #[test]
     fn test_undefined() {
         Context::wrap(|ctx| {
-            let val = Value::from_primitive(&ctx, Primitive::Undefined);
+            let val = Value::from_primitive(ctx, Primitive::Undefined);
             assert_eq!(val.kind(), ValueKind::Undefined);
             assert_eq!(val.as_primitive(), Some(Primitive::Undefined));
             assert!(!val.is_true());
-            assert_eq!(val.as_str_lossy(), "undefined");
+            assert_eq!(val.to_string_lossy(), "undefined");
             assert_eq!(val.len(), None);
             Ok(())
         })
@@ -540,16 +517,16 @@ mod tests {
     #[test]
     fn test_bool() {
         Context::wrap(|ctx| {
-            let val = Value::from_primitive(&ctx, true);
+            let val = Value::from_primitive(ctx, true);
             assert_eq!(val.kind(), ValueKind::Boolean);
             assert_eq!(val.as_primitive(), Some(Primitive::Bool(true)));
-            assert_eq!(val.as_str_lossy(), "true");
+            assert_eq!(val.to_string_lossy(), "true");
             assert_eq!(val.len(), None);
 
-            let val = Value::from_primitive(&ctx, false);
+            let val = Value::from_primitive(ctx, false);
             assert_eq!(val.kind(), ValueKind::Boolean);
             assert_eq!(val.as_primitive(), Some(Primitive::Bool(false)));
-            assert_eq!(val.as_str_lossy(), "false");
+            assert_eq!(val.to_string_lossy(), "false");
             assert_eq!(val.len(), None);
 
             Ok(())
@@ -560,10 +537,10 @@ mod tests {
     #[test]
     fn test_i32() {
         Context::wrap(|ctx| {
-            let val = Value::from_primitive(&ctx, 42i32);
+            let val = Value::from_primitive(ctx, 42i32);
             assert_eq!(val.kind(), ValueKind::Number);
             assert_eq!(val.as_primitive(), Some(Primitive::I32(42)));
-            assert_eq!(val.as_str_lossy(), "42");
+            assert_eq!(val.to_string_lossy(), "42");
             assert_eq!(val.len(), None);
             Ok(())
         })
@@ -573,16 +550,16 @@ mod tests {
     #[test]
     fn test_i64() {
         Context::wrap(|ctx| {
-            let val = Value::from_primitive(&ctx, 42i64);
+            let val = Value::from_primitive(ctx, 42i64);
             assert_eq!(val.kind(), ValueKind::Number);
             assert_eq!(val.as_primitive(), Some(Primitive::I32(42)));
-            assert_eq!(val.as_str_lossy(), "42");
+            assert_eq!(val.to_string_lossy(), "42");
             assert_eq!(val.len(), None);
 
-            let val = Value::from_primitive(&ctx, 4244444444444i64);
+            let val = Value::from_primitive(ctx, 4244444444444i64);
             assert_eq!(val.kind(), ValueKind::Number);
             assert_eq!(val.as_primitive(), Some(Primitive::F64(4244444444444f64)));
-            assert_eq!(val.as_str_lossy(), "4244444444444");
+            assert_eq!(val.to_string_lossy(), "4244444444444");
             assert_eq!(val.len(), None);
 
             Ok(())
@@ -593,10 +570,10 @@ mod tests {
     #[test]
     fn test_str() {
         Context::wrap(|ctx| {
-            let val = Value::from_primitive(&ctx, "Hello World!");
+            let val = Value::from_primitive(ctx, "Hello World!");
             assert_eq!(val.kind(), ValueKind::String);
             assert_eq!(val.as_primitive(), Some(Primitive::Str("Hello World!")));
-            assert_eq!(val.as_str_lossy(), "Hello World!");
+            assert_eq!(val.to_string_lossy(), "Hello World!");
             assert_eq!(val.len(), Some(12));
 
             Ok(())
@@ -608,24 +585,41 @@ mod tests {
     fn test_array() {
         Context::wrap(|ctx| {
             let arr = [
-                Value::from_primitive(&ctx, "Hello"),
-                Value::from_primitive(&ctx, "World"),
+                Value::from_primitive(ctx, "Hello"),
+                Value::from_primitive(ctx, "World"),
             ];
-            let val = Value::from_iter(&ctx, (&arr[..]).iter().cloned());
+            let val = Value::from_iter(ctx, (&arr[..]).iter().cloned());
             assert_eq!(val.kind(), ValueKind::Object);
             assert!(val.is_array());
-            assert_eq!(val.get_by_index(0).unwrap().as_str_lossy(), "Hello");
-            assert_eq!(val.get_by_index(1).unwrap().as_str_lossy(), "World");
+            assert_eq!(val.get_by_index(0).unwrap().to_string_lossy(), "Hello");
+            assert_eq!(val.get_by_index(1).unwrap().to_string_lossy(), "World");
             assert_eq!(val.get_by_index(2).unwrap().kind(), ValueKind::Undefined);
-            assert_eq!(val.get_property("0").unwrap().as_str_lossy(), "Hello");
-            assert_eq!(val.get_property("1").unwrap().as_str_lossy(), "World");
+            assert_eq!(val.get_property("0").unwrap().to_string_lossy(), "Hello");
+            assert_eq!(val.get_property("1").unwrap().to_string_lossy(), "World");
             assert_eq!(val.get_property("2").unwrap().kind(), ValueKind::Undefined);
             assert_eq!(val.as_primitive(), None);
-            assert_eq!(val.as_str_lossy(), "Hello,World");
+            assert_eq!(val.to_string_lossy(), "Hello,World");
             assert_eq!(val.len(), Some(2));
 
             Ok(())
         })
         .unwrap()
+    }
+
+    #[test]
+    fn test_object() {
+        Context::wrap(|ctx| {
+            let val = Value::new_object(ctx);
+            val.set_property("a", Value::from_primitive(ctx, 42))?;
+            val.set_property("b", Value::from_primitive(ctx, 23))?;
+            assert_eq!(val.kind(), ValueKind::Object);
+            assert_eq!(val.to_string_lossy(), "[object Object]");
+            assert_eq!(val.as_primitive(), None);
+            assert_eq!(val.get_property("a").unwrap().to_string_lossy(), "42");
+            assert_eq!(val.get_property("b").unwrap().to_string_lossy(), "23");
+            assert!(!val.is_array());
+            Ok(())
+        })
+        .unwrap();
     }
 }

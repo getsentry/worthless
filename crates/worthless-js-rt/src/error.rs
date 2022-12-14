@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::value::JsException;
+use crate::js_exception::JsException;
 
 /// Represents an error
 #[derive(Error, Debug)]
