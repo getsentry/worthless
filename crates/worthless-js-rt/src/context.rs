@@ -3,7 +3,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use worthless_quickjs_sys::{
-    JSContext, JS_Eval, JS_FreeContext, JS_NewContext, JS_EVAL_TYPE_GLOBAL,
+    JSContext, JS_Eval, JS_FreeContext, JS_GetGlobalObject, JS_NewContext, JS_EVAL_TYPE_GLOBAL,
 };
 
 use crate::error::Error;
@@ -46,6 +46,12 @@ impl Context {
         })
     }
 
+    /// Creates a context populated with common utilities.
+    pub fn new_primed(rt: &Runtime) -> Result<Context, Error> {
+        // TODO: add globals
+        Context::new(rt).map(|ctx| ctx)
+    }
+
     /// Invokes a function with a new runtime and context.
     pub fn wrap<R, F>(f: F) -> Result<R, Error>
     where
@@ -59,6 +65,11 @@ impl Context {
     /// Returns a reference to the runtime.
     pub fn rt(&self) -> &Runtime {
         &self.rt
+    }
+
+    /// Returns a reference to the root object.
+    pub fn global(&self) -> Value {
+        unsafe { Value::from_raw_unchecked(self, JS_GetGlobalObject(self.ptr())) }
     }
 
     /// Evaluates some code
