@@ -2,10 +2,12 @@
 //! a crate with a basic API that can be wrapped.
 mod context;
 mod error;
+mod primitive;
 mod runtime;
 mod value;
 
 pub use self::context::Context;
 pub use self::error::Error;
+pub use self::primitive::Primitive;
 pub use self::runtime::Runtime;
-pub use self::value::{JsException, Primitive, Value, ValueKind};
+pub use self::value::{JsException, Value, ValueKind};

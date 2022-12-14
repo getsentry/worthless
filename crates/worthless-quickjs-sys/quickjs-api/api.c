@@ -1,5 +1,14 @@
 #include "api.h"
 
+const JSValue WL_JS_NULL = JS_NULL;
+const JSValue WL_JS_UNDEFINED = JS_UNDEFINED;
+const JSValue WL_JS_TRUE = JS_TRUE;
+
+void WL_JS_FreeValue(JSContext *ctx, JSValue val)
+{
+    JS_FreeValue(ctx, val);
+}
+
 JSValue WL_JS_NewFloat64(JSContext *ctx, double d)
 {
     return __JS_NewFloat64(ctx, d);

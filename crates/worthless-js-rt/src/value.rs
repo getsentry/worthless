@@ -1,19 +1,20 @@
 use std::borrow::Cow;
-use std::ffi::{c_void, CString};
+use std::ffi::CString;
 use std::fmt;
 
 use smallvec::SmallVec;
 use worthless_quickjs_sys::{
-    JSRefCountHeader, JSValue, JS_Call, JS_DefinePropertyValueStr, JS_DefinePropertyValueUint32,
-    JS_GetException, JS_GetPropertyStr, JS_GetPropertyUint32, JS_IsArray, JS_IsError,
-    JS_IsFunction, JS_ToCStringLen2, JS_ToFloat64, JS_ToInt64Ext, WL_JS_NewBool, WL_JS_NewFloat64,
-    WL_JS_NewInt32, __JS_FreeValue, JS_PROP_C_W_E, JS_TAG_BIG_INT, JS_TAG_BOOL, JS_TAG_EXCEPTION,
+    JSValue, JS_Call, JS_DefinePropertyValueStr, JS_DefinePropertyValueUint32, JS_GetException,
+    JS_GetPropertyStr, JS_GetPropertyUint32, JS_IsArray, JS_IsError, JS_IsFunction,
+    JS_NewStringLen, JS_ToCStringLen2, JS_ToFloat64, JS_ToInt64Ext, WL_JS_FreeValue, WL_JS_NewBool,
+    WL_JS_NewFloat64, WL_JS_NewInt32, JS_PROP_C_W_E, JS_TAG_BIG_INT, JS_TAG_BOOL, JS_TAG_EXCEPTION,
     JS_TAG_FIRST, JS_TAG_FLOAT64, JS_TAG_INT, JS_TAG_NULL, JS_TAG_STRING, JS_TAG_SYMBOL,
-    JS_TAG_UNDEFINED,
+    JS_TAG_UNDEFINED, WL_JS_NULL, WL_JS_TRUE, WL_JS_UNDEFINED,
 };
 
 use crate::context::Context;
 use crate::error::Error;
+use crate::primitive::Primitive;
 
 /// Represents a JavaScript exception.
 #[derive(Debug)]
@@ -54,20 +55,6 @@ pub enum ValueKind {
     Symbol,
     Exception,
     Object,
-}
-
-/// Alternative value representation on the Rust side.
-#[derive(Debug, PartialEq)]
-pub enum Primitive<'a> {
-    Undefined,
-    Null,
-    Bool(bool),
-    I32(i32),
-    I64(i64),
-    F64(f64),
-    Str(&'a str),
-    InvalidStr(String),
-    Symbol(&'a str),
 }
 
 /// A wrapper around a value from the JS engine.
@@ -130,28 +117,61 @@ impl Value {
         }
     }
 
-    /// Creates a new value from a `bool`.
-    pub fn from_bool(ctx: &Context, value: bool) -> Value {
-        unsafe { Value::from_raw_unchecked(ctx, WL_JS_NewBool(ctx.ptr(), value as i32)) }
-    }
-
-    /// Creates a new value from an `i32`.
-    pub fn from_i32(ctx: &Context, value: i32) -> Value {
-        unsafe { Value::from_raw_unchecked(ctx, WL_JS_NewInt32(ctx.ptr(), value)) }
-    }
-
-    /// Creates a new value from an `i64`.
-    pub fn from_i64(ctx: &Context, value: i64) -> Value {
-        if value as i32 as i64 == value {
-            Value::from_i32(ctx, value as i32)
-        } else {
-            Value::from_f64(ctx, value as f64)
+    /// Creates a value from a primitive.
+    ///
+    /// # Panics
+    ///
+    /// Panics when a symbol primitive was attempted to be converted into a
+    /// value which is not supported.
+    pub fn from_primitive<'a, I>(ctx: &Context, value: I) -> Value
+    where
+        I: Into<Primitive<'a>>,
+    {
+        let value: Primitive = value.into();
+        match value {
+            Primitive::Undefined => unsafe { Value::from_raw_unchecked(ctx, WL_JS_UNDEFINED) },
+            Primitive::Null => unsafe { Value::from_raw_unchecked(ctx, WL_JS_NULL) },
+            Primitive::Bool(value) => unsafe {
+                Value::from_raw_unchecked(ctx, WL_JS_NewBool(ctx.ptr(), value as i32))
+            },
+            Primitive::I32(value) => unsafe {
+                Value::from_raw_unchecked(ctx, WL_JS_NewInt32(ctx.ptr(), value))
+            },
+            Primitive::I64(value) => Value::from_primitive(
+                ctx,
+                if value as i32 as i64 == value {
+                    Primitive::I32(value as i32)
+                } else {
+                    Primitive::F64(value as f64)
+                },
+            ),
+            Primitive::F64(value) => unsafe {
+                Value::from_raw_unchecked(ctx, WL_JS_NewFloat64(ctx.ptr(), value))
+            },
+            Primitive::Str(value) => unsafe {
+                Value::from_raw_unchecked(
+                    ctx,
+                    JS_NewStringLen(
+                        ctx.ptr(),
+                        value.as_bytes().as_ptr() as *const i8,
+                        value.len(),
+                    ),
+                )
+            },
+            Primitive::InvalidStr(value) => unsafe {
+                Value::from_raw_unchecked(
+                    ctx,
+                    JS_NewStringLen(
+                        ctx.ptr(),
+                        value.as_bytes().as_ptr() as *const i8,
+                        value.len(),
+                    ),
+                )
+            },
+            // TODO: this is not exposed in the API, but it could be
+            // created by invoking javascript?
+            Primitive::Symbol(_) => panic!("cannot create symbols"),
         }
-    }
-
-    /// Creates a new value from an `f64`.
-    pub fn from_f64(ctx: &Context, value: f64) -> Value {
-        unsafe { Value::from_raw_unchecked(ctx, WL_JS_NewFloat64(ctx.ptr(), value)) }
     }
 
     /// Returns the kind of value.
@@ -193,6 +213,11 @@ impl Value {
         unsafe {
             let mut len: usize = 0;
             let ptr = JS_ToCStringLen2(self.ctx.ptr(), &mut len, self.raw, 0);
+            // this is needed because some values such as symbols for some
+            // reason cannot be converted to strings.
+            if ptr == std::ptr::null() {
+                return Err(self.ctx.last_error());
+            }
             let ptr = ptr as *const u8;
             let len = len as usize;
             let buffer = std::slice::from_raw_parts(ptr, len);
@@ -205,6 +230,9 @@ impl Value {
         unsafe {
             let mut len: usize = 0;
             let ptr = JS_ToCStringLen2(self.ctx.ptr(), &mut len, self.raw, 0);
+            if ptr == std::ptr::null() {
+                return Cow::Borrowed("");
+            }
             let ptr = ptr as *const u8;
             let len = len as usize;
             let buffer = std::slice::from_raw_parts(ptr, len);
@@ -275,9 +303,14 @@ impl Value {
     pub fn is_true(&self) -> bool {
         match self.kind() {
             ValueKind::Undefined | ValueKind::Null => false,
-            // TODO: this does not handle floats and bigints correctly
-            ValueKind::Number => self.raw != 0,
-            ValueKind::Boolean => self.raw != 0,
+            ValueKind::Number => {
+                if self.raw == 0 {
+                    false
+                } else {
+                    self.as_f64() != Some(0.0)
+                }
+            }
+            ValueKind::Boolean => unsafe { self.raw == WL_JS_TRUE },
             ValueKind::String => self.as_str().map_or(false, |x| !x.is_empty()),
             ValueKind::Symbol | ValueKind::Exception | ValueKind::Object => true,
         }
@@ -398,6 +431,20 @@ impl Value {
         }
     }
 
+    /// Returns the length of the value.
+    ///
+    /// This basically returns the result of the `length` property on the JS side.
+    pub fn len(&self) -> Option<usize> {
+        match self.kind() {
+            ValueKind::Undefined | ValueKind::Null | ValueKind::Number | ValueKind::Boolean => None,
+            _ => self
+                .get_property("length")
+                .ok()?
+                .as_i64()
+                .and_then(|x| usize::try_from(x).ok()),
+        }
+    }
+
     /// Interprets the value unsafe as i32
     fn i32_unchecked(&self) -> i32 {
         (self.raw & 0xffffffff) as i32
@@ -406,16 +453,8 @@ impl Value {
 
 impl Drop for Value {
     fn drop(&mut self) {
-        // TODO: not happy that this is inlined
-        // see JS_VALUE_HAS_REF_COUNT
-        if (self.raw >> 32) as u32 >= JS_TAG_FIRST as u32 {
-            unsafe {
-                let ptr = self.raw as *mut c_void as *mut JSRefCountHeader;
-                (*ptr).ref_count -= 1;
-                if (*ptr).ref_count <= 0 {
-                    __JS_FreeValue(self.ctx.ptr(), self.raw);
-                }
-            }
+        unsafe {
+            WL_JS_FreeValue(self.ctx.ptr(), self.raw);
         }
     }
 }
@@ -423,14 +462,99 @@ impl Drop for Value {
 #[cfg(test)]
 mod tests {
     use super::Value;
+    use crate::primitive::Primitive;
     use crate::{Context, ValueKind};
+
+    #[test]
+    fn test_null() {
+        Context::wrap(|ctx| {
+            let val = Value::from_primitive(&ctx, Primitive::Null);
+            assert_eq!(val.kind(), ValueKind::Null);
+            assert_eq!(val.as_primitive(), Some(Primitive::Null));
+            assert!(!val.is_true());
+            assert_eq!(val.as_str_lossy(), "null");
+            assert_eq!(val.len(), None);
+            Ok(())
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn test_undefined() {
+        Context::wrap(|ctx| {
+            let val = Value::from_primitive(&ctx, Primitive::Undefined);
+            assert_eq!(val.kind(), ValueKind::Undefined);
+            assert_eq!(val.as_primitive(), Some(Primitive::Undefined));
+            assert!(!val.is_true());
+            assert_eq!(val.as_str_lossy(), "undefined");
+            assert_eq!(val.len(), None);
+            Ok(())
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn test_bool() {
+        Context::wrap(|ctx| {
+            let val = Value::from_primitive(&ctx, true);
+            assert_eq!(val.kind(), ValueKind::Boolean);
+            assert_eq!(val.as_primitive(), Some(Primitive::Bool(true)));
+            assert_eq!(val.as_str_lossy(), "true");
+            assert_eq!(val.len(), None);
+
+            let val = Value::from_primitive(&ctx, false);
+            assert_eq!(val.kind(), ValueKind::Boolean);
+            assert_eq!(val.as_primitive(), Some(Primitive::Bool(false)));
+            assert_eq!(val.as_str_lossy(), "false");
+            assert_eq!(val.len(), None);
+
+            Ok(())
+        })
+        .unwrap()
+    }
 
     #[test]
     fn test_i32() {
         Context::wrap(|ctx| {
-            let val = Value::from_i32(&ctx, 42);
+            let val = Value::from_primitive(&ctx, 42i32);
             assert_eq!(val.kind(), ValueKind::Number);
-            assert_eq!(val.as_primitive(), Some(crate::Primitive::I32(42)));
+            assert_eq!(val.as_primitive(), Some(Primitive::I32(42)));
+            assert_eq!(val.as_str_lossy(), "42");
+            assert_eq!(val.len(), None);
+            Ok(())
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn test_i64() {
+        Context::wrap(|ctx| {
+            let val = Value::from_primitive(&ctx, 42i64);
+            assert_eq!(val.kind(), ValueKind::Number);
+            assert_eq!(val.as_primitive(), Some(Primitive::I32(42)));
+            assert_eq!(val.as_str_lossy(), "42");
+            assert_eq!(val.len(), None);
+
+            let val = Value::from_primitive(&ctx, 4244444444444i64);
+            assert_eq!(val.kind(), ValueKind::Number);
+            assert_eq!(val.as_primitive(), Some(Primitive::F64(4244444444444f64)));
+            assert_eq!(val.as_str_lossy(), "4244444444444");
+            assert_eq!(val.len(), None);
+
+            Ok(())
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn test_str() {
+        Context::wrap(|ctx| {
+            let val = Value::from_primitive(&ctx, "Hello World!");
+            assert_eq!(val.kind(), ValueKind::String);
+            assert_eq!(val.as_primitive(), Some(Primitive::Str("Hello World!")));
+            assert_eq!(val.as_str_lossy(), "Hello World!");
+            assert_eq!(val.len(), Some(12));
+
             Ok(())
         })
         .unwrap()
