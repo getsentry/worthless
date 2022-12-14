@@ -49,7 +49,10 @@ impl Context {
     /// Creates a context populated with common utilities.
     pub fn new_primed(rt: &Runtime) -> Result<Context, Error> {
         // TODO: add globals
-        Context::new(rt).map(|ctx| ctx)
+        let ctx = Context::new(rt)?;
+        let global = ctx.global();
+        global.set_property("VERSION", env!("CARGO_PKG_VERSION"))?;
+        Ok(ctx)
     }
 
     /// Invokes a function with a new runtime and context.

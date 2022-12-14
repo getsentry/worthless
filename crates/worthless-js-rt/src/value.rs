@@ -318,7 +318,11 @@ impl Value {
     }
 
     /// Sets a property to the object.
-    pub fn set_property(&self, key: &str, value: Value) -> Result<(), Error> {
+    pub fn set_property<I: IntoValue>(&self, key: &str, value: I) -> Result<(), Error> {
+        self._set_property(key, value.into_value(&self.ctx))
+    }
+
+    fn _set_property(&self, key: &str, value: Value) -> Result<(), Error> {
         let key = CString::new(key)?;
         let rv = unsafe {
             WL_JS_DupValue(self.ctx.ptr(), value.raw);
@@ -348,7 +352,11 @@ impl Value {
     }
 
     /// Appends a value to the end of an array.
-    pub fn append(&self, value: Value) -> Result<(), Error> {
+    pub fn append<I: IntoValue>(&self, value: I) -> Result<(), Error> {
+        self._append(value.into_value(&self.ctx))
+    }
+
+    pub fn _append(&self, value: Value) -> Result<(), Error> {
         let rv = unsafe {
             WL_JS_DupValue(self.ctx.ptr(), value.raw);
             JS_DefinePropertyValueUint32(
@@ -371,7 +379,11 @@ impl Value {
     }
 
     /// Places a value at a certain index.
-    pub fn set_by_index(&self, idx: usize, value: Value) -> Result<(), Error> {
+    pub fn set_by_index<I: IntoValue>(&self, idx: usize, value: I) -> Result<(), Error> {
+        self._set_by_index(idx, value.into_value(&self.ctx))
+    }
+
+    pub fn _set_by_index(&self, idx: usize, value: Value) -> Result<(), Error> {
         let rv = unsafe {
             WL_JS_DupValue(self.ctx.ptr(), value.raw);
             JS_DefinePropertyValueUint32(
@@ -474,7 +486,7 @@ impl IntoValue for Value {
     }
 }
 
-impl<'a> IntoValue for Primitive<'a> {
+impl<'a, T: Into<Primitive<'a>>> IntoValue for T {
     fn into_value(self, ctx: &Context) -> Value {
         Value::from_primitive(ctx, self)
     }
