@@ -182,7 +182,15 @@ impl Value {
         rv
     }
 
-    /// This is only safe for zero sized functions.
+    /// Wraps a Rust function in a value.
+    ///
+    /// Note that this only works for function types that do not carry a closure.  This
+    /// currently cannot be validated at compile time so attempting to wrap a function with
+    /// a closure will result in a panic being raised.
+    ///
+    /// # Panics
+    ///
+    /// If a function carries a closure this will panic.
     pub fn from_func<F: Fn(&Value, &[Value]) -> Result<Value, Error> + 'static>(
         ctx: &Context,
         name: &str,
@@ -485,7 +493,7 @@ impl Value {
         self._append(value.into_value(&self.ctx))
     }
 
-    pub fn _append(&self, value: Value) -> Result<(), Error> {
+    fn _append(&self, value: Value) -> Result<(), Error> {
         let rv = unsafe {
             WL_JS_DupValue(self.ctx.ptr(), value.raw);
             JS_DefinePropertyValueUint32(
@@ -512,7 +520,7 @@ impl Value {
         self._set_by_index(idx, value.into_value(&self.ctx))
     }
 
-    pub fn _set_by_index(&self, idx: usize, value: Value) -> Result<(), Error> {
+    fn _set_by_index(&self, idx: usize, value: Value) -> Result<(), Error> {
         let rv = unsafe {
             WL_JS_DupValue(self.ctx.ptr(), value.raw);
             JS_DefinePropertyValueUint32(
@@ -542,7 +550,7 @@ impl Value {
     }
 
     /// Calls the object.
-    pub fn call(&self, receiver: Value, args: &[Self]) -> Result<Value, Error> {
+    pub fn call(&self, receiver: &Value, args: &[Self]) -> Result<Value, Error> {
         let args: SmallVec<[JSValue; 10]> = args.iter().map(|v| v.raw).collect();
         let rv = unsafe {
             JS_Call(
@@ -621,7 +629,9 @@ impl Drop for Value {
     }
 }
 
+/// Utility trait to convert things into values.
 pub trait IntoValue {
+    /// Wraps something in a value within the given JS context.
     fn into_value(self, ctx: &Context) -> Value;
 }
 
@@ -637,6 +647,7 @@ impl<'a, T: Into<Primitive<'a>>> IntoValue for T {
     }
 }
 
+/// Iterates over properties of an object.
 pub struct PropertiesIter<'a> {
     value: &'a Value,
     property_enum: *mut JSPropertyEnum,
