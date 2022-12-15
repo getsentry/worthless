@@ -37,6 +37,7 @@ impl Runtime {
         })
     }
 
+    /// Returns a runtime instance borrowing from a low-level runtime.
     pub(crate) unsafe fn borrow_raw_unchecked(rt: *mut JSRuntime) -> Runtime {
         // leak one refcount so that we don't hit the gc
         let mut handle = Rc::new(RuntimeHandle { ptr: rt });

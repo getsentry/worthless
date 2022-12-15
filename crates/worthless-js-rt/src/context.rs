@@ -23,7 +23,6 @@ struct ContextHandle {
 #[derive(Clone)]
 pub struct Context {
     handle: Rc<ContextHandle>,
-    #[allow(unused)]
     rt: Runtime,
 }
 
@@ -69,7 +68,7 @@ impl Context {
             Value::from_func(
                 &ctx,
                 "getVersion",
-                |this: &Value, args: &[Value]| -> Result<Value, Error> {
+                |this: &Value, _args: &[Value]| -> Result<Value, Error> {
                     Ok(Value::from_primitive(this.ctx(), env!("CARGO_PKG_VERSION")))
                 },
             )?,

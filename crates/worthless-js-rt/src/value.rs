@@ -36,7 +36,13 @@ pub enum ValueKind {
 pub struct Value {
     // note on JSValue here.  We're assuming that JSValue is 64bit because
     // internally it uses JS_NAN_BOXING when compiling to wasi
-    pub(crate) raw: JSValue,
+    raw: JSValue,
+    // TODO: it's quite annoying to carry a huge context object in here and it's
+    // also unnecessary.  The JSValue can be used to reconstruct the context as
+    // needed.  The reason however we carry the context here is that we want to
+    // keep the refcount alive to not accidentally work with values where the
+    // context is already gone as there is no lifetime that restricts the values
+    // otherwise.
     ctx: Context,
 }
 
@@ -231,7 +237,7 @@ impl Value {
                 ctx.ptr(),
                 Some(trampoline::<F>),
                 name.as_ptr() as *const i8,
-                1, // length
+                0, // length
                 0, // JS_CFUNC_generic
                 0, // magic
             );
@@ -553,9 +559,14 @@ impl Value {
     }
 
     /// Downgrades the value into the lower type
-    pub fn into_raw(self) -> JSValue {
+    pub(crate) fn into_raw(self) -> JSValue {
         // consume the refcount
         ManuallyDrop::new(self).raw
+    }
+
+    /// Returns the internal raw value.
+    pub(crate) fn as_raw(&self) -> JSValue {
+        self.raw
     }
 }
 
