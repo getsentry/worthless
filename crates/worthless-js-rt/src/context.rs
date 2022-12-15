@@ -7,6 +7,7 @@ use worthless_quickjs_sys::{
     JS_EVAL_TYPE_GLOBAL,
 };
 
+use crate::builtins::make_basic_console;
 use crate::error::Error;
 use crate::js_exception::JsException;
 use crate::runtime::Runtime;
@@ -33,8 +34,8 @@ impl fmt::Debug for Context {
 }
 
 impl Context {
-    /// Creates a new context.
-    pub fn new(rt: &Runtime) -> Result<Context, Error> {
+    /// Creates a completely empty context.
+    pub fn empty(rt: &Runtime) -> Result<Context, Error> {
         let ptr = unsafe { JS_NewContext(rt.as_raw()) };
         if ptr.is_null() {
             return Err(Error::ContextInit);
@@ -46,6 +47,14 @@ impl Context {
         })
     }
 
+    /// Creates a context populated with common utilities.
+    pub fn new(rt: &Runtime) -> Result<Context, Error> {
+        let ctx = Context::empty(rt)?;
+        let global = ctx.global();
+        global.set_property("console", make_basic_console(&ctx)?)?;
+        Ok(ctx)
+    }
+
     pub unsafe fn borrow_raw_unchecked(ctx: *mut JSContext) -> Context {
         unsafe {
             let rt_raw = JS_GetRuntime(ctx);
@@ -55,25 +64,6 @@ impl Context {
             std::mem::forget(Rc::clone(&mut handle));
             Context { handle, rt }
         }
-    }
-
-    /// Creates a context populated with common utilities.
-    pub fn new_primed(rt: &Runtime) -> Result<Context, Error> {
-        // TODO: add globals
-        let ctx = Context::new(rt)?;
-        let global = ctx.global();
-        global.set_property("VERSION", env!("CARGO_PKG_VERSION"))?;
-        global.set_property(
-            "getVersion",
-            Value::from_func(
-                &ctx,
-                "getVersion",
-                |this: &Value, _args: &[Value]| -> Result<Value, Error> {
-                    Ok(Value::from_primitive(this.ctx(), env!("CARGO_PKG_VERSION")))
-                },
-            )?,
-        )?;
-        Ok(ctx)
     }
 
     /// Invokes a function with a new runtime and context.

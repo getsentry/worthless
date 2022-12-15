@@ -1,5 +1,6 @@
 //! Worthless-JS-RT is a QuickJS based runtime environment for WASI.  It's provided as
 //! a crate with a basic API that can be wrapped.
+mod builtins;
 mod context;
 mod error;
 mod js_exception;

@@ -40,11 +40,9 @@ pub struct Value {
     // internally it uses JS_NAN_BOXING when compiling to wasi
     raw: JSValue,
     // TODO: it's quite annoying to carry a huge context object in here and it's
-    // also unnecessary.  The JSValue can be used to reconstruct the context as
-    // needed.  The reason however we carry the context here is that we want to
-    // keep the refcount alive to not accidentally work with values where the
-    // context is already gone as there is no lifetime that restricts the values
-    // otherwise.
+    // also unnecessary.  It's however quite convenient to be able to always refer
+    // back to the context for some APIs.  Note that in the engine itself the value
+    // has no reference to the context.
     ctx: Context,
 }
 
@@ -191,7 +189,7 @@ impl Value {
     /// # Panics
     ///
     /// If a function carries a closure this will panic.
-    pub fn from_func<F: Fn(&Value, &[Value]) -> Result<Value, Error> + 'static>(
+    pub fn from_func<F: Fn(&Context, &Value, &[Value]) -> Result<Value, Error> + 'static>(
         ctx: &Context,
         name: &str,
         f: F,
@@ -207,7 +205,7 @@ impl Value {
             argv: *mut JSValue,
         ) -> JSValue
         where
-            F: Fn(&Value, &[Value]) -> Result<Value, Error> + 'static,
+            F: Fn(&Context, &Value, &[Value]) -> Result<Value, Error> + 'static,
         {
             // we invoke the function purely based on the fact that it's a known zero type
             let func: F = unsafe { std::mem::zeroed() };
@@ -221,7 +219,7 @@ impl Value {
                 })
                 .collect::<SmallVec<[Value; 8]>>();
 
-            match func(&this_val, &args) {
+            match func(&ctx, &this_val, &args) {
                 Ok(value) => value.into_raw(),
                 Err(err) => {
                     let err_msg = err.to_string();
@@ -242,6 +240,7 @@ impl Value {
             }
         }
 
+        let name = CString::new(name).unwrap();
         unsafe {
             let func = JS_NewCFunction2(
                 ctx.as_raw(),
@@ -550,7 +549,7 @@ impl Value {
     }
 
     /// Calls the object.
-    pub fn call(&self, receiver: &Value, args: &[Self]) -> Result<Value, Error> {
+    pub fn call(&self, receiver: &Value, args: &[Value]) -> Result<Value, Error> {
         let args: SmallVec<[JSValue; 10]> = args.iter().map(|v| v.raw).collect();
         let rv = unsafe {
             JS_Call(
@@ -688,8 +687,7 @@ impl<'a> Iterator for PropertiesIter<'a> {
 #[cfg(test)]
 mod tests {
     use super::Value;
-    use crate::primitive::Primitive;
-    use crate::{Context, ValueKind};
+    use crate::{Context, Error, Primitive, ValueKind};
 
     #[test]
     fn test_null() {
@@ -831,6 +829,32 @@ mod tests {
             assert_eq!(items[1].1.to_string_lossy(), "23");
 
             assert!(!val.is_array());
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn test_function() {
+        Context::run(|ctx| {
+            let func = Value::from_func(
+                ctx,
+                "myCoolFunc",
+                |_ctx: &Context, this: &Value, args: &[Value]| -> Result<Value, Error> {
+                    assert_eq!(
+                        this.get_property("testProperty")?.as_primitive(),
+                        Some(Primitive::I32(42))
+                    );
+                    assert_eq!(args.len(), 1);
+                    Ok(args[0].clone())
+                },
+            )?;
+
+            let obj = Value::new_object(ctx);
+            obj.set_property("testProperty", Value::from_primitive(ctx, 42))?;
+            let rv = func.call(&obj, &[Value::from_primitive(ctx, true)])?;
+            assert_eq!(rv.as_primitive(), Some(Primitive::Bool(true)));
+
             Ok(())
         })
         .unwrap();

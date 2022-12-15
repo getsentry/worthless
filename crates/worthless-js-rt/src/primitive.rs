@@ -18,6 +18,12 @@ impl From<bool> for Primitive<'static> {
     }
 }
 
+impl From<usize> for Primitive<'static> {
+    fn from(value: usize) -> Primitive<'static> {
+        Primitive::F64(value as f64)
+    }
+}
+
 impl From<i32> for Primitive<'static> {
     fn from(value: i32) -> Primitive<'static> {
         Primitive::I32(value)
