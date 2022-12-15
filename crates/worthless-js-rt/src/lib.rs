@@ -12,4 +12,4 @@ pub use self::error::Error;
 pub use self::js_exception::JsException;
 pub use self::primitive::Primitive;
 pub use self::runtime::Runtime;
-pub use self::value::{IntoValue, Value, ValueKind};
+pub use self::value::{IntoValue, PropertiesIter, Value, ValueKind};

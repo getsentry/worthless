@@ -1,17 +1,19 @@
 use std::borrow::Cow;
 use std::ffi::CString;
-use std::fmt;
 use std::mem::ManuallyDrop;
+use std::{fmt, ptr};
 
 use smallvec::SmallVec;
 use worthless_quickjs_sys::{
-    JSContext, JSValue, JS_Call, JS_DefinePropertyValueStr, JS_DefinePropertyValueUint32,
-    JS_GetPropertyStr, JS_GetPropertyUint32, JS_IsArray, JS_IsFunction, JS_NewArray,
-    JS_NewCFunction2, JS_NewObject, JS_NewStringLen, JS_ThrowInternalError, JS_ToCStringLen2,
-    JS_ToFloat64, JS_ToInt64Ext, WL_JS_DupValue, WL_JS_FreeValue, WL_JS_NewBool, WL_JS_NewFloat64,
-    WL_JS_NewInt32, JS_PROP_C_W_E, JS_TAG_BIG_INT, JS_TAG_BOOL, JS_TAG_EXCEPTION, JS_TAG_FIRST,
-    JS_TAG_FLOAT64, JS_TAG_INT, JS_TAG_NULL, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED,
-    WL_JS_NULL, WL_JS_TRUE, WL_JS_UNDEFINED,
+    JSAtom, JSContext, JSPropertyEnum, JSValue, JS_AtomToString, JS_Call,
+    JS_DefinePropertyValueStr, JS_DefinePropertyValueUint32, JS_GetOwnPropertyNames,
+    JS_GetPropertyInternal, JS_GetPropertyStr, JS_GetPropertyUint32, JS_IsArray, JS_IsFunction,
+    JS_NewArray, JS_NewCFunction2, JS_NewObject, JS_NewStringLen, JS_ThrowInternalError,
+    JS_ToCStringLen2, JS_ToFloat64, JS_ToInt64Ext, WL_JS_DupValue, WL_JS_FreeValue, WL_JS_NewBool,
+    WL_JS_NewFloat64, WL_JS_NewInt32, JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK,
+    JS_PROP_C_W_E, JS_TAG_BIG_INT, JS_TAG_BOOL, JS_TAG_EXCEPTION, JS_TAG_FIRST, JS_TAG_FLOAT64,
+    JS_TAG_INT, JS_TAG_NULL, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED, WL_JS_NULL,
+    WL_JS_TRUE, WL_JS_UNDEFINED,
 };
 
 use crate::context::Context;
@@ -299,7 +301,7 @@ impl Value {
             let ptr = JS_ToCStringLen2(self.ctx.ptr(), &mut len, self.raw, 0);
             // this is needed because some values such as symbols for some
             // reason cannot be converted to strings.
-            if ptr == std::ptr::null() {
+            if ptr == ptr::null() {
                 return Err(self.ctx.last_error());
             }
             let ptr = ptr as *const u8;
@@ -314,7 +316,7 @@ impl Value {
         unsafe {
             let mut len: usize = 0;
             let ptr = JS_ToCStringLen2(self.ctx.ptr(), &mut len, self.raw, 0);
-            if ptr == std::ptr::null() {
+            if ptr == ptr::null() {
                 return Cow::Borrowed("");
             }
             let ptr = ptr as *const u8;
@@ -433,6 +435,37 @@ impl Value {
             Err(self.ctx.last_error())
         } else {
             Ok(())
+        }
+    }
+
+    /// Iterates over all properties.
+    ///
+    /// The iterator yields key, value pairs where the key is always a string in
+    /// true JavaScript mannor.
+    pub fn iter_properties(&self) -> PropertiesIter<'_> {
+        let mut property_enum: *mut JSPropertyEnum = ptr::null_mut();
+        let mut len = 0;
+        let rv = unsafe {
+            JS_GetOwnPropertyNames(
+                self.ctx.ptr(),
+                &mut property_enum,
+                &mut len,
+                self.raw,
+                (JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_ENUM_ONLY) as i32,
+            )
+        };
+
+        // swallow iteration setup errors
+        if rv < 0 {
+            len = 0;
+        }
+
+        PropertiesIter {
+            value: self,
+            property_enum,
+            len: len as usize,
+            offset: 0,
+            current_key: 0,
         }
     }
 
@@ -604,6 +637,43 @@ impl<'a, T: Into<Primitive<'a>>> IntoValue for T {
     }
 }
 
+pub struct PropertiesIter<'a> {
+    value: &'a Value,
+    property_enum: *mut JSPropertyEnum,
+    current_key: JSAtom,
+    len: usize,
+    offset: usize,
+}
+
+impl<'a> Iterator for PropertiesIter<'a> {
+    type Item = (Value, Value);
+
+    fn next(&mut self) -> Option<(Value, Value)> {
+        if self.offset >= self.len {
+            return None;
+        }
+        let ctx = self.value.ctx();
+        let key = unsafe { self.property_enum.add(self.offset) };
+        self.offset += 1;
+        self.current_key = unsafe { (*key).atom };
+        let val = unsafe {
+            JS_GetPropertyInternal(
+                ctx.ptr(),
+                self.value.as_raw(),
+                self.current_key,
+                self.value.as_raw(),
+                0,
+            )
+        };
+        unsafe {
+            Some((
+                Value::from_raw_unchecked(ctx, JS_AtomToString(ctx.ptr(), self.current_key)),
+                Value::from_raw_unchecked(ctx, val),
+            ))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Value;
@@ -741,6 +811,14 @@ mod tests {
             assert_eq!(val.as_primitive(), None);
             assert_eq!(val.get_property("a").unwrap().to_string_lossy(), "42");
             assert_eq!(val.get_property("b").unwrap().to_string_lossy(), "23");
+
+            let items = val.iter_properties().collect::<Vec<_>>();
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0].0.to_string_lossy(), "a");
+            assert_eq!(items[0].1.to_string_lossy(), "42");
+            assert_eq!(items[1].0.to_string_lossy(), "b");
+            assert_eq!(items[1].1.to_string_lossy(), "23");
+
             assert!(!val.is_array());
             Ok(())
         })
