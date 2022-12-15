@@ -20,3 +20,4 @@ test:
 smolbuild:
 	cargo build --target wasm32-wasi --release --example hello
 	../../vendor/binaryen/bin/wasm-opt -Oz -o hello-smol.wasm ../../target/wasm32-wasi/release/examples/hello.wasm
+	ls -alh hello-smol.wasm
