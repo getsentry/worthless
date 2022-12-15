@@ -8,3 +8,7 @@ download-wasi-sdk:
 .PHONY: download-binaryen
 download-binaryen:
 	./scripts/download-binaryen.sh
+
+.PHONY: install-wasmtime
+install-wasmtime:
+	curl https://wasmtime.dev/install.sh -sSf | bash

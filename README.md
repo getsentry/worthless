@@ -18,3 +18,6 @@ WASM module execution in the Sentry pipeline.**
 
 For anything here to work you need to some tools to be available.  You can get them
 by running `make download-all` in the root folder.
+
+Additionally you need to have `wasmtime` installed on your machine which you can get
+with `make install-wasmtime`.
