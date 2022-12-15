@@ -3,7 +3,8 @@ use std::fmt;
 use std::rc::Rc;
 
 use worthless_quickjs_sys::{
-    JSContext, JS_Eval, JS_FreeContext, JS_GetGlobalObject, JS_NewContext, JS_EVAL_TYPE_GLOBAL,
+    JSContext, JS_Eval, JS_FreeContext, JS_GetGlobalObject, JS_GetRuntime, JS_NewContext,
+    JS_EVAL_TYPE_GLOBAL,
 };
 
 use crate::error::Error;
@@ -46,12 +47,33 @@ impl Context {
         })
     }
 
+    pub unsafe fn borrow_raw_unchecked(ctx: *mut JSContext) -> Context {
+        unsafe {
+            let rt_raw = JS_GetRuntime(ctx);
+            let rt = Runtime::borrow_raw_unchecked(rt_raw);
+            // leak one refcount so that we don't hit the gc
+            let mut handle = Rc::new(ContextHandle { ptr: ctx });
+            std::mem::forget(Rc::clone(&mut handle));
+            Context { handle, rt }
+        }
+    }
+
     /// Creates a context populated with common utilities.
     pub fn new_primed(rt: &Runtime) -> Result<Context, Error> {
         // TODO: add globals
         let ctx = Context::new(rt)?;
         let global = ctx.global();
         global.set_property("VERSION", env!("CARGO_PKG_VERSION"))?;
+        global.set_property(
+            "getVersion",
+            Value::from_func(
+                &ctx,
+                "getVersion",
+                |this: &Value, args: &[Value]| -> Result<Value, Error> {
+                    Ok(Value::from_primitive(this.ctx(), env!("CARGO_PKG_VERSION")))
+                },
+            )?,
+        )?;
         Ok(ctx)
     }
 
@@ -72,6 +94,8 @@ impl Context {
 
     /// Returns a reference to the root object.
     pub fn global(&self) -> Value {
+        // note: inside JS_GetGlobalObject the engine already performs a Js_DupValue
+        // so we do not need to do this here.
         unsafe { Value::from_raw_unchecked(self, JS_GetGlobalObject(self.ptr())) }
     }
 

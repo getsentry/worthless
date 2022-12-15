@@ -1,5 +1,7 @@
 #include "../quickjs/quickjs.h"
 
+int WL_GetRefCount(JSValue value);
+
 JSValue WL_JS_DupValue(JSContext *ctx, JSValueConst v);
 void WL_JS_FreeValue(JSContext *ctx, JSValue val);
 

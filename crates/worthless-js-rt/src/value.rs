@@ -1,15 +1,17 @@
 use std::borrow::Cow;
 use std::ffi::CString;
 use std::fmt;
+use std::mem::ManuallyDrop;
 
 use smallvec::SmallVec;
 use worthless_quickjs_sys::{
-    JSValue, JS_Call, JS_DefinePropertyValueStr, JS_DefinePropertyValueUint32, JS_GetPropertyStr,
-    JS_GetPropertyUint32, JS_IsArray, JS_IsFunction, JS_NewArray, JS_NewObject, JS_NewStringLen,
-    JS_ToCStringLen2, JS_ToFloat64, JS_ToInt64Ext, WL_JS_DupValue, WL_JS_FreeValue, WL_JS_NewBool,
-    WL_JS_NewFloat64, WL_JS_NewInt32, JS_PROP_C_W_E, JS_TAG_BIG_INT, JS_TAG_BOOL, JS_TAG_EXCEPTION,
-    JS_TAG_FIRST, JS_TAG_FLOAT64, JS_TAG_INT, JS_TAG_NULL, JS_TAG_STRING, JS_TAG_SYMBOL,
-    JS_TAG_UNDEFINED, WL_JS_NULL, WL_JS_TRUE, WL_JS_UNDEFINED,
+    JSContext, JSValue, JS_Call, JS_DefinePropertyValueStr, JS_DefinePropertyValueUint32,
+    JS_GetPropertyStr, JS_GetPropertyUint32, JS_IsArray, JS_IsFunction, JS_NewArray,
+    JS_NewCFunction2, JS_NewObject, JS_NewStringLen, JS_ThrowInternalError, JS_ToCStringLen2,
+    JS_ToFloat64, JS_ToInt64Ext, WL_JS_DupValue, WL_JS_FreeValue, WL_JS_NewBool, WL_JS_NewFloat64,
+    WL_JS_NewInt32, JS_PROP_C_W_E, JS_TAG_BIG_INT, JS_TAG_BOOL, JS_TAG_EXCEPTION, JS_TAG_FIRST,
+    JS_TAG_FLOAT64, JS_TAG_INT, JS_TAG_NULL, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED,
+    WL_JS_NULL, WL_JS_TRUE, WL_JS_UNDEFINED,
 };
 
 use crate::context::Context;
@@ -40,28 +42,44 @@ pub struct Value {
 
 impl fmt::Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        #[derive(Debug)]
+        struct Invalid;
+
         let kind = self.kind();
-        let mut s = if kind == ValueKind::Object {
-            if self.is_array() {
-                f.debug_struct("Array")
-            } else if self.is_function() {
-                let mut s = f.debug_struct("Function");
-                if let Ok(name) = self.get_property("name") {
-                    if name.kind() != ValueKind::Undefined {
-                        s.field("name", &name.to_string_lossy());
+        match kind {
+            ValueKind::Null => return f.debug_struct("Null").finish(),
+            ValueKind::Undefined => return f.debug_struct("Undefined").finish(),
+            ValueKind::Object => {
+                if self.is_array() {
+                    let mut t = f.debug_tuple("Array");
+                    for idx in 0..self.len().unwrap_or(0) {
+                        match self.get_by_index(idx) {
+                            Ok(value) => t.field(&value),
+                            Err(_) => t.field(&Invalid),
+                        };
                     }
+                    return t.finish();
+                } else if self.is_function() {
+                    if let Ok(name) = self.get_property("name") {
+                        if name.kind() != ValueKind::Undefined {
+                            return f
+                                .debug_tuple("Function")
+                                .field(&name.to_string_lossy())
+                                .finish();
+                        }
+                    }
+                    return f.debug_struct("Function").finish();
                 }
-                s
-            } else {
-                f.debug_struct(&format!("{:?}", kind))
             }
-        } else {
-            f.debug_struct(&format!("{:?}", kind))
+            _ => {}
         };
         if let Some(x) = self.as_primitive() {
-            s.field("as_primitive", &x);
+            fmt::Debug::fmt(&x, f)
+        } else {
+            f.debug_struct(&format!("{:?}", kind))
+                .field("to_string", &self.to_string_lossy())
+                .finish()
         }
-        s.field("to_string", &self.to_string_lossy()).finish()
     }
 }
 
@@ -154,6 +172,74 @@ impl Value {
             rv.append(item.into_value(ctx)).unwrap();
         }
         rv
+    }
+
+    /// This is only safe for zero sized functions.
+    pub fn from_func<F: Fn(&Value, &[Value]) -> Result<Value, Error> + 'static>(
+        ctx: &Context,
+        name: &str,
+        f: F,
+    ) -> Result<Value, Error> {
+        // TODO: maybe there is a way to stash away a closure too
+        let _ = f;
+        assert_eq!(std::mem::size_of::<F>(), 0, "can only wrap ZST functions");
+
+        unsafe extern "C" fn trampoline<F>(
+            raw_ctx: *mut JSContext,
+            this_val: JSValue,
+            argc: i32,
+            argv: *mut JSValue,
+        ) -> JSValue
+        where
+            F: Fn(&Value, &[Value]) -> Result<Value, Error> + 'static,
+        {
+            // we invoke the function purely based on the fact that it's a known zero type
+            let func: F = unsafe { std::mem::zeroed() };
+
+            let ctx = Context::borrow_raw_unchecked(raw_ctx);
+            let this_val =
+                unsafe { Value::from_raw_unchecked(&ctx, WL_JS_DupValue(raw_ctx, this_val)) };
+            let args = (0..argc as usize)
+                .map(|idx| unsafe {
+                    Value::from_raw_unchecked(&ctx, WL_JS_DupValue(raw_ctx, *argv.add(idx)))
+                })
+                .collect::<SmallVec<[Value; 8]>>();
+
+            match func(&this_val, &args) {
+                Ok(value) => value.into_raw(),
+                Err(err) => {
+                    let err_msg = err.to_string();
+                    let msg = match CString::new(err_msg) {
+                        Ok(msg) => msg,
+                        Err(err) => CString::new(
+                            err.into_vec()
+                                .into_iter()
+                                .filter(|x| *x != 0)
+                                .collect::<Vec<_>>(),
+                        )
+                        .unwrap(),
+                    };
+                    unsafe {
+                        JS_ThrowInternalError(raw_ctx, "%s\x00".as_ptr() as *const i8, msg.as_ptr())
+                    }
+                }
+            }
+        }
+
+        unsafe {
+            let func = JS_NewCFunction2(
+                ctx.ptr(),
+                Some(trampoline::<F>),
+                name.as_ptr() as *const i8,
+                1, // length
+                0, // JS_CFUNC_generic
+                0, // magic
+            );
+            if func == 0 {
+                return Err(ctx.last_error());
+            }
+            Ok(Value::from_raw_unchecked(&ctx, func))
+        }
     }
 
     /// Crates an empty array
@@ -312,6 +398,8 @@ impl Value {
     pub fn get_property(&self, key: &str) -> Result<Value, Error> {
         let cstring_key = CString::new(key)?;
         unsafe {
+            // NOTE: no DupValue here because this is already incremented
+            // in JS_GetPropertyStr
             let raw = JS_GetPropertyStr(self.ctx.ptr(), self.raw, cstring_key.as_ptr());
             Value::from_raw(&self.ctx, raw)
         }
@@ -346,6 +434,8 @@ impl Value {
     pub fn get_by_index(&self, idx: usize) -> Result<Value, Error> {
         let idx = u32::try_from(idx).map_err(Error::IntOverflow)?;
         unsafe {
+            // NOTE: no DupValue here because this is already incremented
+            // in JS_GetPropertyUint32
             let raw = JS_GetPropertyUint32(self.ctx.ptr(), self.raw, idx);
             Value::from_raw(&self.ctx, raw)
         }
@@ -452,9 +542,20 @@ impl Value {
         }
     }
 
+    /// Returns a reference to the context.
+    pub fn ctx(&self) -> &Context {
+        &self.ctx
+    }
+
     /// Interprets the value unsafe as i32
     fn i32_unchecked(&self) -> i32 {
         (self.raw & 0xffffffff) as i32
+    }
+
+    /// Downgrades the value into the lower type
+    pub fn into_raw(self) -> JSValue {
+        // consume the refcount
+        ManuallyDrop::new(self).raw
     }
 }
 

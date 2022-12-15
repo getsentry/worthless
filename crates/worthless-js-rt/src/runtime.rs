@@ -37,6 +37,13 @@ impl Runtime {
         })
     }
 
+    pub(crate) unsafe fn borrow_raw_unchecked(rt: *mut JSRuntime) -> Runtime {
+        // leak one refcount so that we don't hit the gc
+        let mut handle = Rc::new(RuntimeHandle { ptr: rt });
+        std::mem::forget(Rc::clone(&mut handle));
+        Runtime { handle }
+    }
+
     /// Returns the internal pointer
     pub(crate) fn ptr(&self) -> *mut JSRuntime {
         self.handle.ptr

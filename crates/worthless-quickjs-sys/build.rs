@@ -41,6 +41,7 @@ fn main() {
         )
         .define("CONFIG_BIGNUM", None)
         .define("WORTHLESS_PATCHES", None)
+        .define("DUMP_LEAKS", None)
         .cargo_metadata(true)
         .debug(true)
         .flag_if_supported("-Wextra")
