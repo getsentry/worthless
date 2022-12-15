@@ -46,7 +46,7 @@ impl Runtime {
     }
 
     /// Returns the internal pointer
-    pub(crate) fn ptr(&self) -> *mut JSRuntime {
+    pub(crate) fn as_raw(&self) -> *mut JSRuntime {
         self.handle.ptr
     }
 }

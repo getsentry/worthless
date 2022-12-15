@@ -35,7 +35,7 @@ impl fmt::Debug for Context {
 impl Context {
     /// Creates a new context.
     pub fn new(rt: &Runtime) -> Result<Context, Error> {
-        let ptr = unsafe { JS_NewContext(rt.ptr()) };
+        let ptr = unsafe { JS_NewContext(rt.as_raw()) };
         if ptr.is_null() {
             return Err(Error::ContextInit);
         }
@@ -95,7 +95,7 @@ impl Context {
     pub fn global(&self) -> Value {
         // note: inside JS_GetGlobalObject the engine already performs a Js_DupValue
         // so we do not need to do this here.
-        unsafe { Value::from_raw_unchecked(self, JS_GetGlobalObject(self.ptr())) }
+        unsafe { Value::from_raw_unchecked(self, JS_GetGlobalObject(self.as_raw())) }
     }
 
     /// Evaluates some code
@@ -121,7 +121,7 @@ impl Context {
         Error::JsException(unsafe { JsException::from_raw(self) })
     }
 
-    pub(crate) fn ptr(&self) -> *mut JSContext {
+    pub(crate) fn as_raw(&self) -> *mut JSContext {
         self.handle.ptr
     }
 }

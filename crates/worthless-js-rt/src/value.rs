@@ -131,10 +131,10 @@ impl Value {
             Primitive::Undefined => unsafe { Value::from_raw_unchecked(ctx, WL_JS_UNDEFINED) },
             Primitive::Null => unsafe { Value::from_raw_unchecked(ctx, WL_JS_NULL) },
             Primitive::Bool(value) => unsafe {
-                Value::from_raw_unchecked(ctx, WL_JS_NewBool(ctx.ptr(), value as i32))
+                Value::from_raw_unchecked(ctx, WL_JS_NewBool(ctx.as_raw(), value as i32))
             },
             Primitive::I32(value) => unsafe {
-                Value::from_raw_unchecked(ctx, WL_JS_NewInt32(ctx.ptr(), value))
+                Value::from_raw_unchecked(ctx, WL_JS_NewInt32(ctx.as_raw(), value))
             },
             Primitive::I64(value) => Value::from_primitive(
                 ctx,
@@ -145,13 +145,13 @@ impl Value {
                 },
             ),
             Primitive::F64(value) => unsafe {
-                Value::from_raw_unchecked(ctx, WL_JS_NewFloat64(ctx.ptr(), value))
+                Value::from_raw_unchecked(ctx, WL_JS_NewFloat64(ctx.as_raw(), value))
             },
             Primitive::Str(value) => unsafe {
                 Value::from_raw_unchecked(
                     ctx,
                     JS_NewStringLen(
-                        ctx.ptr(),
+                        ctx.as_raw(),
                         value.as_bytes().as_ptr() as *const i8,
                         value.len(),
                     ),
@@ -161,7 +161,7 @@ impl Value {
                 Value::from_raw_unchecked(
                     ctx,
                     JS_NewStringLen(
-                        ctx.ptr(),
+                        ctx.as_raw(),
                         value.as_bytes().as_ptr() as *const i8,
                         value.len(),
                     ),
@@ -244,7 +244,7 @@ impl Value {
 
         unsafe {
             let func = JS_NewCFunction2(
-                ctx.ptr(),
+                ctx.as_raw(),
                 Some(trampoline::<F>),
                 name.as_ptr() as *const i8,
                 0, // length
@@ -260,12 +260,12 @@ impl Value {
 
     /// Crates an empty array
     pub fn new_array(ctx: &Context) -> Value {
-        unsafe { Value::from_raw_unchecked(ctx, JS_NewArray(ctx.ptr())) }
+        unsafe { Value::from_raw_unchecked(ctx, JS_NewArray(ctx.as_raw())) }
     }
 
     /// Crates an empty object
     pub fn new_object(ctx: &Context) -> Value {
-        unsafe { Value::from_raw_unchecked(ctx, JS_NewObject(ctx.ptr())) }
+        unsafe { Value::from_raw_unchecked(ctx, JS_NewObject(ctx.as_raw())) }
     }
 
     /// Returns the kind of value.
@@ -306,7 +306,7 @@ impl Value {
     pub fn as_str(&self) -> Result<&str, Error> {
         unsafe {
             let mut len: usize = 0;
-            let ptr = JS_ToCStringLen2(self.ctx.ptr(), &mut len, self.raw, 0);
+            let ptr = JS_ToCStringLen2(self.ctx.as_raw(), &mut len, self.raw, 0);
             // this is needed because some values such as symbols for some
             // reason cannot be converted to strings.
             if ptr == ptr::null() {
@@ -323,7 +323,7 @@ impl Value {
     pub fn to_string_lossy(&self) -> Cow<'_, str> {
         unsafe {
             let mut len: usize = 0;
-            let ptr = JS_ToCStringLen2(self.ctx.ptr(), &mut len, self.raw, 0);
+            let ptr = JS_ToCStringLen2(self.ctx.as_raw(), &mut len, self.raw, 0);
             if ptr == ptr::null() {
                 return Cow::Borrowed("");
             }
@@ -340,13 +340,13 @@ impl Value {
             JS_TAG_FLOAT64 => {
                 let mut pres: f64 = 0.0;
                 unsafe {
-                    JS_ToFloat64(self.ctx.ptr(), &mut pres, self.raw);
+                    JS_ToFloat64(self.ctx.as_raw(), &mut pres, self.raw);
                 }
                 Some(pres)
             }
             JS_TAG_BIG_INT => {
                 let mut pres: i64 = 0;
-                unsafe { JS_ToInt64Ext(self.ctx.ptr(), &mut pres, self.raw) };
+                unsafe { JS_ToInt64Ext(self.ctx.as_raw(), &mut pres, self.raw) };
                 if pres as f64 as i64 == pres {
                     Some(pres as f64)
                 } else {
@@ -371,7 +371,7 @@ impl Value {
             JS_TAG_INT => Some(self.i32_unchecked()),
             JS_TAG_BIG_INT => {
                 let mut pres: i64 = 0;
-                unsafe { JS_ToInt64Ext(self.ctx.ptr(), &mut pres, self.raw) };
+                unsafe { JS_ToInt64Ext(self.ctx.as_raw(), &mut pres, self.raw) };
                 if pres as i32 as i64 == pres {
                     Some(pres as i32)
                 } else {
@@ -386,7 +386,7 @@ impl Value {
     pub fn as_i64(&self) -> Option<i64> {
         if self.tag() == JS_TAG_BIG_INT {
             let mut pres: i64 = 0;
-            unsafe { JS_ToInt64Ext(self.ctx.ptr(), &mut pres, self.raw) };
+            unsafe { JS_ToInt64Ext(self.ctx.as_raw(), &mut pres, self.raw) };
             Some(pres)
         } else {
             self.as_i32().map(Into::into)
@@ -416,7 +416,7 @@ impl Value {
         unsafe {
             // NOTE: no DupValue here because this is already incremented
             // in JS_GetPropertyStr
-            let raw = JS_GetPropertyStr(self.ctx.ptr(), self.raw, cstring_key.as_ptr());
+            let raw = JS_GetPropertyStr(self.ctx.as_raw(), self.raw, cstring_key.as_ptr());
             Value::from_raw(&self.ctx, raw)
         }
     }
@@ -429,9 +429,9 @@ impl Value {
     fn _set_property(&self, key: &str, value: Value) -> Result<(), Error> {
         let key = CString::new(key)?;
         let rv = unsafe {
-            WL_JS_DupValue(self.ctx.ptr(), value.raw);
+            WL_JS_DupValue(self.ctx.as_raw(), value.raw);
             JS_DefinePropertyValueStr(
-                self.ctx.ptr(),
+                self.ctx.as_raw(),
                 self.raw,
                 key.as_ptr(),
                 value.raw,
@@ -455,7 +455,7 @@ impl Value {
         let mut len = 0;
         let rv = unsafe {
             JS_GetOwnPropertyNames(
-                self.ctx.ptr(),
+                self.ctx.as_raw(),
                 &mut property_enum,
                 &mut len,
                 self.raw,
@@ -483,7 +483,7 @@ impl Value {
         unsafe {
             // NOTE: no DupValue here because this is already incremented
             // in JS_GetPropertyUint32
-            let raw = JS_GetPropertyUint32(self.ctx.ptr(), self.raw, idx);
+            let raw = JS_GetPropertyUint32(self.ctx.as_raw(), self.raw, idx);
             Value::from_raw(&self.ctx, raw)
         }
     }
@@ -495,9 +495,9 @@ impl Value {
 
     fn _append(&self, value: Value) -> Result<(), Error> {
         let rv = unsafe {
-            WL_JS_DupValue(self.ctx.ptr(), value.raw);
+            WL_JS_DupValue(self.ctx.as_raw(), value.raw);
             JS_DefinePropertyValueUint32(
-                self.ctx.ptr(),
+                self.ctx.as_raw(),
                 self.raw,
                 self.get_property("length")?
                     .as_i64()
@@ -522,9 +522,9 @@ impl Value {
 
     fn _set_by_index(&self, idx: usize, value: Value) -> Result<(), Error> {
         let rv = unsafe {
-            WL_JS_DupValue(self.ctx.ptr(), value.raw);
+            WL_JS_DupValue(self.ctx.as_raw(), value.raw);
             JS_DefinePropertyValueUint32(
-                self.ctx.ptr(),
+                self.ctx.as_raw(),
                 self.raw,
                 u32::try_from(idx).map_err(|_| Error::InvalidLength)?,
                 value.raw,
@@ -541,12 +541,12 @@ impl Value {
 
     /// Checks if this object is a function.
     pub fn is_function(&self) -> bool {
-        unsafe { JS_IsFunction(self.ctx.ptr(), self.raw) != 0 }
+        unsafe { JS_IsFunction(self.ctx.as_raw(), self.raw) != 0 }
     }
 
     /// Checks if this object is an array
     pub fn is_array(&self) -> bool {
-        unsafe { JS_IsArray(self.ctx.ptr(), self.raw) == 1 }
+        unsafe { JS_IsArray(self.ctx.as_raw(), self.raw) == 1 }
     }
 
     /// Calls the object.
@@ -554,7 +554,7 @@ impl Value {
         let args: SmallVec<[JSValue; 10]> = args.iter().map(|v| v.raw).collect();
         let rv = unsafe {
             JS_Call(
-                self.ctx.ptr(),
+                self.ctx.as_raw(),
                 self.raw,
                 receiver.raw,
                 args.len() as i32,
@@ -613,7 +613,7 @@ impl Value {
 
 impl Clone for Value {
     fn clone(&self) -> Self {
-        unsafe { WL_JS_DupValue(self.ctx.ptr(), self.raw) };
+        unsafe { WL_JS_DupValue(self.ctx.as_raw(), self.raw) };
         Self {
             raw: self.raw,
             ctx: self.ctx.clone(),
@@ -624,7 +624,7 @@ impl Clone for Value {
 impl Drop for Value {
     fn drop(&mut self) {
         unsafe {
-            WL_JS_FreeValue(self.ctx.ptr(), self.raw);
+            WL_JS_FreeValue(self.ctx.as_raw(), self.raw);
         }
     }
 }
@@ -669,7 +669,7 @@ impl<'a> Iterator for PropertiesIter<'a> {
         self.current_key = unsafe { (*key).atom };
         let val = unsafe {
             JS_GetPropertyInternal(
-                ctx.ptr(),
+                ctx.as_raw(),
                 self.value.as_raw(),
                 self.current_key,
                 self.value.as_raw(),
@@ -678,7 +678,7 @@ impl<'a> Iterator for PropertiesIter<'a> {
         };
         unsafe {
             Some((
-                Value::from_raw_unchecked(ctx, JS_AtomToString(ctx.ptr(), self.current_key)),
+                Value::from_raw_unchecked(ctx, JS_AtomToString(ctx.as_raw(), self.current_key)),
                 Value::from_raw_unchecked(ctx, val),
             ))
         }

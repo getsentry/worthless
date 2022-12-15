@@ -25,10 +25,10 @@ impl JsException {
 
 impl JsException {
     pub(crate) unsafe fn from_raw(ctx: &Context) -> JsException {
-        let exc_val = unsafe { Value::from_raw_unchecked(ctx, JS_GetException(ctx.ptr())) };
+        let exc_val = unsafe { Value::from_raw_unchecked(ctx, JS_GetException(ctx.as_raw())) };
         let msg = exc_val.to_string_lossy().to_string();
         let mut stack = None;
-        let is_error = unsafe { JS_IsError(ctx.ptr(), exc_val.as_raw()) } != 0;
+        let is_error = unsafe { JS_IsError(ctx.as_raw(), exc_val.as_raw()) } != 0;
         if is_error {
             if let Ok(stack_value) = exc_val.get_property("stack") {
                 if stack_value.kind() != ValueKind::Undefined {
