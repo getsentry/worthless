@@ -3,3 +3,18 @@
 This is an experimental WASM based system to build a basic JavaScript execution
 system.  Longer term the desire is to enable non JavaScript execution as well, but
 for now the runtime environment only permits basic JS execution.
+
+**Current status: this is an experimental project to establish the viability of
+WASM module execution in the Sentry pipeline.**
+
+## Contents
+
+* [`worthless-quickjs-sys`](crates/worthless-quickjs-sys): this is a Rust crate that upon
+  compilation exposes the unsafe QuickJS API in a WASI compatible build.
+* [`worthless-js-rt`](crates/worthless-js-rt): this is a high level WASI compatible JS
+  runtime environment based on quickjs
+
+## Building
+
+For anything here to work you need to some tools to be available.  You can get them
+by running `make download-all` in the root folder.

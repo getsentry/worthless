@@ -14,3 +14,9 @@ open-doc:
 .PHONY: test
 test:
 	cargo test --target wasm32-wasi -- --nocapture
+
+# Test build of the small hello example into a WASM file
+.PHONY: smolbuild
+smolbuild:
+	cargo build --target wasm32-wasi --release --example hello
+	../../vendor/binaryen/bin/wasm-opt -Oz -o hello-smol.wasm ../../target/wasm32-wasi/release/examples/hello.wasm

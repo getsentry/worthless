@@ -1,2 +1,7 @@
 [workspace]
 members = ["crates/*"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = "debuginfo"
