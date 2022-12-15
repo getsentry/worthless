@@ -1,3 +1,9 @@
 [target.wasm32-wasi]
 runner = ["wasmtime", "run", "--"]
 #runner = ["wasmer", "run", "--"]
+
+[build]
+target = "wasm32-wasi"
+
+[doc]
+target = "wasm32-wasi"
