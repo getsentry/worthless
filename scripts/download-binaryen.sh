@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -eu
 
 VERSION="111"
 SDKROOT="vendor/binaryen"

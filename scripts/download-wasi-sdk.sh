@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -eu
 
 VERSION_MAJOR="17"
 VERSION_MINOR="0"
