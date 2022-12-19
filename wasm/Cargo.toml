@@ -1,5 +1,5 @@
 [workspace]
-members = ["worthless-js-rt", "worthless-quickjs-sys"]
+members = ["worthless-*"]
 
 [profile.release]
 opt-level = "s"
