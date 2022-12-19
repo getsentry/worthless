@@ -9,9 +9,16 @@ WASM module execution in the Sentry pipeline.**
 
 ## Contents
 
-* [`worthless-quickjs-sys`](crates/worthless-quickjs-sys): this is a Rust crate that upon
+Host side:
+
+* [`worthless-host`](crates/worthless-host): this module contains the host side of the
+  equation.  It lets one load a WASM module and interact with it.
+
+Guest side:
+
+* [`worthless-quickjs-sys`](wasm/worthless-quickjs-sys): this is a Rust crate that upon
   compilation exposes the unsafe QuickJS API in a WASI compatible build.
-* [`worthless-js-rt`](crates/worthless-js-rt): this is a high level WASI compatible JS
+* [`worthless-js-rt`](wasm/worthless-js-rt): this is a high level WASI compatible JS
   runtime environment based on quickjs
 
 ## Building
