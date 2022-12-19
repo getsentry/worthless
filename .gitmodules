@@ -1,4 +1,4 @@
-[submodule "crates/worthless-quickjs-sys/quickjs"]
-	path = crates/worthless-quickjs-sys/quickjs
+[submodule "wasm/worthless-quickjs-sys/quickjs"]
+	path = wasm/worthless-quickjs-sys/quickjs
 	url = https://github.com/getsentry/quickjs
 	ignore = dirty

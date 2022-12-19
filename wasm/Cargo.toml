@@ -1,0 +1,7 @@
+[workspace]
+members = ["worthless-js-rt", "worthless-quickjs-sys"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = "debuginfo"
