@@ -1,0 +1,2 @@
+[workspace]
+members = ["host/worthless-*", "shared/worthless-*"]
