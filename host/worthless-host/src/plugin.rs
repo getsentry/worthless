@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::io::{Cursor, Read, Seek};
+use std::io::{Cursor, Read, Seek, Write};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -11,6 +11,7 @@ use wasi_common::pipe::{ReadPipe, WritePipe};
 use wasmtime::{Engine, Linker, Module, Store};
 use wasmtime_wasi::sync::WasiCtxBuilder;
 use wasmtime_wasi::WasiCtx;
+use worthless_bridge::{Request, Response};
 
 use crate::error::HostError;
 
@@ -65,6 +66,35 @@ impl Plugin {
         })
     }
 
+    pub fn send_request(&self, req: Request) -> Result<Response, HostError> {
+        let bytes = req.serialize().map_err(HostError::ProtocolError)?;
+        {
+            let mut pipe = self.pipe_in.write().unwrap();
+            pipe.write_all(&bytes).map_err(HostError::BridgeIoError)?;
+            pipe.rewind().unwrap();
+        }
+
+        let mut store = self.store.lock().unwrap();
+        let symbol = self
+            .linker
+            .get(&mut *store, "plugin", "worthless_handle_request")
+            .unwrap();
+        let func = symbol.into_func().unwrap();
+        func.typed::<(), ()>(&*store)
+            .map_err(HostError::WasmInvokeFailed)?
+            .call(&mut *store, ())
+            .map_err(HostError::WasmInvokeFailed)?;
+
+        {
+            let mut buf = Vec::new();
+            let mut pipe = self.pipe_out.write().unwrap();
+            pipe.rewind().unwrap();
+            pipe.read_to_end(&mut buf).unwrap();
+            Ok(Response::deserialize(&buf).map_err(HostError::ProtocolError)?)
+        }
+    }
+
+    /*
     pub fn invoke<T: Serialize>(&self, command: &str, payload: T) -> Result<(), HostError> {
         let msg = Message {
             command: command.to_string(),
@@ -78,7 +108,7 @@ impl Plugin {
         let mut store = self.store.lock().unwrap();
         let symbol = self.linker.get(&mut *store, "plugin", "hello").unwrap();
         let func = symbol.into_func().unwrap();
-        func.typed::<(), (), _>(&*store)
+        func.typed::<(), ()>(&*store)
             .map_err(HostError::WasmInvokeFailed)?
             .call(&mut *store, ())
             .map_err(HostError::WasmInvokeFailed)?;
@@ -92,5 +122,5 @@ impl Plugin {
         }
 
         Ok(())
-    }
+    }*/
 }

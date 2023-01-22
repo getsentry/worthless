@@ -3,7 +3,6 @@ use std::fmt;
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use crate::utils::{deserialize_from_cbor, serialize_to_cbor};
 
@@ -17,9 +16,6 @@ pub type Meta = BTreeMap<String, Value>;
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub struct Request {
-    /// The unique ID of the request to allow multiple simultanious
-    /// requests through the bridge at once.
-    id: Uuid,
     /// key/value pairs of meta information.
     meta: BTreeMap<String, Value>,
     /// When flipped tells the remote side that no response is requested.
@@ -39,8 +35,6 @@ pub struct RequestBuilder {
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub struct Response {
-    /// If of the request this response belongs to.
-    request_id: Uuid,
     /// Meta information not contained in the payload.
     meta: Meta,
     /// The response payload.
@@ -97,7 +91,6 @@ impl Request {
         V: Into<Value>,
     {
         Request {
-            id: Uuid::new_v4(),
             meta: BTreeMap::new(),
             fire_and_forget: false,
             endpoint: endpoint.into(),
@@ -120,11 +113,6 @@ impl Request {
     /// Deserializes the request from the wire format.
     pub fn deserialize(bytes: &[u8]) -> Result<Request, Error> {
         deserialize_from_cbor(bytes, "request")
-    }
-
-    /// Returns the ID of the request.
-    pub fn id(&self) -> &Uuid {
-        &self.id
     }
 
     /// Returns the meta object of the request.
@@ -162,12 +150,6 @@ impl Request {
 impl RequestBuilder {
     fn request_mut(&mut self) -> &mut Request {
         self.request.as_mut().expect("builder is already done")
-    }
-
-    /// Overrides the default request ID.
-    pub fn request_id(&mut self, id: Uuid) -> &mut RequestBuilder {
-        self.request_mut().id = id;
-        self
     }
 
     /// Sets the payload of the request.
@@ -215,28 +197,15 @@ impl RequestBuilder {
 
 impl Response {
     /// Creates a new response.
-    pub fn new(
-        request_id: Uuid,
-        meta: BTreeMap<String, Value>,
-        payload: Result<Value, Error>,
-    ) -> Response {
-        Response {
-            request_id,
-            meta,
-            payload,
-        }
+    pub fn new(meta: BTreeMap<String, Value>, payload: Result<Value, Error>) -> Response {
+        Response { meta, payload }
     }
 
     /// Create a response builder for more complex responses.
-    pub fn builder(request_id: Uuid) -> ResponseBuilder {
+    pub fn builder() -> ResponseBuilder {
         ResponseBuilder {
-            response: Some(Response::new(request_id, BTreeMap::new(), Ok(Value::Null))),
+            response: Some(Response::new(BTreeMap::new(), Ok(Value::Null))),
         }
-    }
-
-    /// Returns the ID of the request.
-    pub fn request_id(&self) -> &Uuid {
-        &self.request_id
     }
 
     /// Returns the meta dictionary.

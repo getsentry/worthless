@@ -1,14 +1,17 @@
+use anyhow;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 #[error("Host error")]
 pub enum HostError {
     #[error("WASM module load failed")]
-    WasmModuleLoadFailed(#[source] wasi_common::Error),
+    WasmModuleLoadFailed(#[source] anyhow::Error),
     #[error("WASM module linking failed")]
-    WasmModuleLinkingFailed(#[source] wasi_common::Error),
+    WasmModuleLinkingFailed(#[source] anyhow::Error),
     #[error("WASM invocation failed")]
-    WasmInvokeFailed(#[source] wasi_common::Error),
-    #[error("JSON serialization failed")]
-    JsonSerializationFailed(#[source] serde_json::Error),
+    WasmInvokeFailed(#[source] anyhow::Error),
+    #[error("protocol error")]
+    ProtocolError(#[source] worthless_bridge::Error),
+    #[error("bridge i/o error")]
+    BridgeIoError(#[source] std::io::Error),
 }
